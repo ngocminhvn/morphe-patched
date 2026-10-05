@@ -1,0 +1,8 @@
+work/
+dist/
+*.apk
+*.apkm
+*.apks
+*.xapk
+*.mpp
+*.jar
