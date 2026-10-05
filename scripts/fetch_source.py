@@ -86,8 +86,19 @@ def score_link(base: str, href: str, text: str) -> int:
         return -1
     if "premium" in u or "sign-in" in u:
         return -1
+    if path.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg")):
+        return -1
 
-    if p.hostname and p.hostname.startswith(("downloadr", "download")) and "apkmirror" in p.hostname:
+    if (
+        p.hostname
+        and p.hostname.startswith(("downloadr", "download"))
+        and "apkmirror" in p.hostname
+        and (
+            any(path.endswith(ext) for ext in APK_EXTS)
+            or "download" in path
+            or "key=" in q
+        )
+    ):
         return 1000
     if "download.php" in path:
         return 950
