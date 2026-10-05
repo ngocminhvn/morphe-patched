@@ -1,7 +1,15 @@
 name: Build YouTube Morphe CorePatch
-run-name: YouTube Morphe CorePatch • ${{ inputs.morphe_patches_version }}
+run-name: Morphe YouTube • ${{ github.event_name }}
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/build.yml'
+      - 'scripts/**'
+      - 'config/**'
+      - 'README.md'
   workflow_dispatch:
     inputs:
       source_url:
@@ -50,12 +58,40 @@ permissions:
   contents: read
 
 concurrency:
-  group: morphe-youtube-${{ github.ref }}
+  group: morphe-youtube-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: false
 
 jobs:
+  validate:
+    name: Validate repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate scripts and tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f .github/workflows/build.yml
+          test -f config/defaults.env
+          test -f scripts/build.sh
+          test -f scripts/apk_sigblock.py
+
+          bash -n scripts/build.sh
+          python3 -m py_compile scripts/apk_sigblock.py
+
+          grep -F '"GmsCore support"' scripts/build.sh
+          grep -F '"Spoof signature"' scripts/build.sh
+          grep -F '"Custom branding"' scripts/build.sh
+          grep -F 'app_icon=original_youtube' scripts/build.sh
+
+          echo "Repository validation passed."
+
   build:
     name: Patch YouTube
+    if: github.event_name == 'workflow_dispatch'
+    needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
