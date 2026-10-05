@@ -48,12 +48,16 @@ def lp(data: bytes, offset: int) -> tuple[bytes, int]:
     return data[start:end], end
 
 
-def signing_block(data: bytes) -> bytes:
+def eocd_offset(data: bytes) -> int:
     tail_start = max(0, len(data) - (65535 + 22 + 4096))
     eocd = data.rfind(EOCD, tail_start)
     if eocd < 0 or eocd + 22 > len(data):
         raise ValueError("ZIP EOCD not found")
+    return eocd
 
+
+def signing_block(data: bytes) -> bytes:
+    eocd = eocd_offset(data)
     cd_offset = u32(data, eocd + 16)
     if cd_offset < 24 or cd_offset > len(data):
         raise ValueError("invalid central-directory offset")
@@ -68,6 +72,49 @@ def signing_block(data: bytes) -> bytes:
         raise ValueError("invalid APK Signing Block size")
 
     return data[start:cd_offset]
+
+
+def has_signing_block(data: bytes) -> bool:
+    try:
+        signing_block(data)
+        return True
+    except ValueError as exc:
+        if "APK Signing Block magic not found" in str(exc):
+            return False
+        raise
+
+
+def inject_signing_block(data: bytes, block: bytes) -> bytes:
+    """Insert an existing APK Signing Block before the ZIP central directory.
+
+    This does not make the modified APK cryptographically valid. It only
+    preserves the original signer metadata for ROMs whose CorePatch/framework
+    deliberately bypasses the changed-content digest verification.
+    """
+    if has_signing_block(data):
+        return data
+
+    eocd = eocd_offset(data)
+    cd_offset = u32(data, eocd + 16)
+
+    if cd_offset >= 0xFFFFFFFF:
+        raise ValueError("ZIP64 APK is not supported by signing-block injector")
+
+    new_cd_offset = cd_offset + len(block)
+    if new_cd_offset >= 0xFFFFFFFF:
+        raise ValueError("central directory offset exceeds ZIP32 range after injection")
+
+    out = bytearray()
+    out.extend(data[:cd_offset])
+    out.extend(block)
+    out.extend(data[cd_offset:])
+
+    new_eocd = eocd + len(block)
+    if out[new_eocd:new_eocd + 4] != EOCD:
+        raise ValueError("EOCD moved to an unexpected position after signing-block injection")
+
+    struct.pack_into("<I", out, new_eocd + 16, new_cd_offset)
+    return bytes(out)
 
 
 def scheme_pairs(block: bytes):
@@ -141,12 +188,25 @@ def main() -> int:
     parser.add_argument("source", type=Path)
     parser.add_argument("patched", type=Path)
     parser.add_argument("--print-only", action="store_true")
+    parser.add_argument(
+        "--preserve-source-block",
+        action="store_true",
+        help="inject the source APK Signing Block when the patched APK is unsigned",
+    )
     args = parser.parse_args()
 
     source_data, source_entry, source_is_bundle = source_apk_bytes(args.source)
     patched_data = args.patched.read_bytes()
 
     source_block = signing_block(source_data)
+
+    if args.preserve_source_block and not has_signing_block(patched_data):
+        patched_data = inject_signing_block(patched_data, source_block)
+        args.patched.write_bytes(patched_data)
+        print("injected_source_signing_block=true")
+    else:
+        print("injected_source_signing_block=false")
+
     patched_block = signing_block(patched_data)
     source_certs = certificate_hashes(source_data)
     patched_certs = certificate_hashes(patched_data)
