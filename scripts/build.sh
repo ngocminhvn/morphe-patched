@@ -37,18 +37,43 @@ api_get() {
   fi
 }
 
-latest_asset() {
-  local repo="$1" regex="$2" json
+latest_release_asset() {
+  local repo="$1" suffix="$2" json tag url digest
   json="$(api_get "https://api.github.com/repos/$repo/releases/latest")"
-  jq -r --arg re "$regex" '
-    .tag_name,
-    (.assets[] | select(.name | test($re)) | .browser_download_url),
-    (.assets[] | select(.name | test($re)) | (.digest // ""))
-  ' <<< "$json"
+
+  tag="$(jq -r '.tag_name // empty' <<< "$json")"
+  url="$(jq -r --arg suffix "$suffix" '
+    [.assets[]? | select(.name | endswith($suffix)) | .browser_download_url][0] // empty
+  ' <<< "$json")"
+  digest="$(jq -r --arg suffix "$suffix" '
+    [.assets[]? | select(.name | endswith($suffix)) | (.digest // "")][0] // ""
+  ' <<< "$json")"
+
+  [[ -n "$tag" ]] || {
+    echo "Latest release tag not found for $repo" >&2
+    return 1
+  }
+  [[ -n "$url" ]] || {
+    echo "Latest release asset ending with '$suffix' not found for $repo ($tag)" >&2
+    echo "Available assets:" >&2
+    jq -r '.assets[]?.name' <<< "$json" >&2
+    return 1
+  }
+
+  printf '%s\n%s\n%s\n' "$tag" "$url" "$digest"
 }
 
-mapfile -t desktop_info < <(latest_asset MorpheApp/morphe-desktop 'morphe-desktop-.*-all\\.jar$')
-mapfile -t patches_info < <(latest_asset MorpheApp/morphe-patches 'patches-.*\\.mpp$')
+mapfile -t desktop_info < <(latest_release_asset MorpheApp/morphe-desktop '-all.jar')
+mapfile -t patches_info < <(latest_release_asset MorpheApp/morphe-patches '.mpp')
+
+[[ "${#desktop_info[@]}" -ge 2 ]] || {
+  echo "Could not resolve latest Morphe Desktop release asset" >&2
+  exit 3
+}
+[[ "${#patches_info[@]}" -ge 2 ]] || {
+  echo "Could not resolve latest Morphe patches release asset" >&2
+  exit 3
+}
 
 DESKTOP_TAG="${desktop_info[0]}"
 DESKTOP_URL="${desktop_info[1]}"
@@ -56,9 +81,6 @@ DESKTOP_DIGEST="${desktop_info[2]:-}"
 PATCHES_TAG="${patches_info[0]}"
 PATCHES_URL="${patches_info[1]}"
 PATCHES_DIGEST="${patches_info[2]:-}"
-
-[[ -n "$DESKTOP_TAG" && -n "$DESKTOP_URL" ]] || { echo "Latest Morphe Desktop asset not found" >&2; exit 3; }
-[[ -n "$PATCHES_TAG" && -n "$PATCHES_URL" ]] || { echo "Latest Morphe patches asset not found" >&2; exit 3; }
 
 echo "Latest Morphe Desktop: $DESKTOP_TAG"
 echo "Latest Morphe patches: $PATCHES_TAG"
