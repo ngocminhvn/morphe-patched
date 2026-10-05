@@ -75,6 +75,34 @@ def is_binary_response(resp, url: str) -> bool:
     return any(x in ctype for x in ("application/vnd.android.package-archive", "application/octet-stream", "application/zip"))
 
 
+def is_release_overview(url: str) -> bool:
+    path = urllib.parse.urlparse(url).path.rstrip("/").lower()
+    return path.endswith("-release")
+
+
+def link_context(html: str, href: str) -> str:
+    """Return nearby row text for an APKMirror variant link."""
+    needle = href.replace("&", "&amp;")
+    pos = html.find(needle)
+    if pos < 0:
+        pos = html.find(href)
+    if pos < 0:
+        return ""
+
+    row_start = html.rfind('<div class="table-row', 0, pos)
+    if row_start < 0:
+        row_start = max(0, pos - 1500)
+
+    row_end = html.find('<div class="table-row', pos + 1)
+    if row_end < 0:
+        row_end = min(len(html), pos + 2500)
+
+    chunk = html[row_start:row_end]
+    chunk = re.sub(r"<[^>]+>", " ", chunk)
+    chunk = chunk.replace("&nbsp;", " ").replace("&amp;", "&")
+    return re.sub(r"\\s+", " ", chunk).strip()
+
+
 def score_link(base: str, href: str, text: str) -> int:
     u = urllib.parse.urljoin(base, href)
     p = urllib.parse.urlparse(u)
@@ -138,7 +166,11 @@ def resolve_apkmirror(url: str, out_tmp: Path) -> tuple[Path, str]:
             data = resp.read(5 * 1024 * 1024)
             ctype = (resp.headers.get("Content-Type") or "").lower()
             if b"PK\x03\x04" == data[:4] and "text/html" not in ctype:
-                out_tmp.write_bytes(data)
+                # The probe above is intentionally bounded. Re-open and stream
+                # the whole binary so we never save a truncated APK/APKM.
+                with request(op, final_url, referer) as binary_resp:
+                    with out_tmp.open("wb") as f:
+                        shutil.copyfileobj(binary_resp, f, length=1024 * 1024)
                 return out_tmp, final_url
 
         html = data.decode("utf-8", "replace")
@@ -146,11 +178,23 @@ def resolve_apkmirror(url: str, out_tmp: Path) -> tuple[Path, str]:
         parser.feed(html)
 
         candidates = []
+        release_page = is_release_overview(final_url)
+
         for href, text in parser.links:
             absolute = urllib.parse.urljoin(final_url, href)
             s = score_link(final_url, href, text)
-            if s >= 0:
-                candidates.append((s, absolute))
+            if s < 0:
+                continue
+
+            # On a version overview page APKMirror can list many variants.
+            # Prefer the variant whose row says "universal". Direct variant,
+            # keyed download and file URLs keep their existing behavior.
+            if release_page and "android-apk-download" in urllib.parse.urlparse(absolute).path.lower():
+                context = f"{text} {link_context(html, href)}".lower()
+                if re.search(r"\\buniversal\\b", context):
+                    s += 5000
+
+            candidates.append((s, absolute))
 
         for refresh in parser.meta_refresh:
             absolute = urllib.parse.urljoin(final_url, refresh)
