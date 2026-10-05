@@ -112,6 +112,19 @@ def score_link(base: str, href: str, text: str) -> int:
 
     if not u.startswith(("http://", "https://")):
         return -1
+
+    # Ignore same-page navigation such as "#downloads". APKMirror release
+    # overview pages contain these anchors and following one would loop back
+    # to the exact same page instead of selecting a real variant.
+    href_parsed = urllib.parse.urlparse(href)
+    if href.startswith("#"):
+        return -1
+    if href_parsed.fragment:
+        base_no_fragment = urllib.parse.urlsplit(base)._replace(fragment="").geturl()
+        target_no_fragment = urllib.parse.urlsplit(u)._replace(fragment="").geturl()
+        if base_no_fragment == target_no_fragment:
+            return -1
+
     if "premium" in u or "sign-in" in u:
         return -1
     if path.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg")):
