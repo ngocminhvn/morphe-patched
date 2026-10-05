@@ -318,7 +318,7 @@ def main() -> int:
     print(f"SOURCE_FILE={target.resolve()}")
     print(f"SOURCE_FORMAT={ext.lstrip('.')}")
     print(f"SOURCE_SIZE={target.stat().st_size}")
-    print(f"SOURCE_FINAL_URL={final_url}")
+    print(f"SOURCE_FINAL_URL={final_url}", file=sys.stderr)
     return 0
 
 
