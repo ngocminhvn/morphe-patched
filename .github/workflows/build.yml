@@ -1,5 +1,5 @@
-name: Build YouTube Morphe
-run-name: Build YouTube from URL
+name: YouTube Morphe Builder
+run-name: ${{ github.event_name == 'workflow_dispatch' && 'Build YouTube from URL' || github.event_name == 'schedule' && 'Sync supported versions' || 'Validate builder' }}
 
 on:
   push:
@@ -10,6 +10,9 @@ on:
       - 'scripts/**'
       - 'config/**'
       - 'README.md'
+      - 'SUPPORTED.md'
+  schedule:
+    - cron: '23 3 * * *'
   workflow_dispatch:
     inputs:
       source_url:
@@ -27,9 +30,11 @@ concurrency:
 jobs:
   validate:
     name: Validate repository
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Validate scripts
         shell: bash
         run: |
@@ -41,6 +46,34 @@ jobs:
           grep -F '"GmsCore support"' scripts/build.sh
           grep -F '"Spoof signature"' scripts/build.sh
           grep -F '"Custom branding"' scripts/build.sh
+
+  sync-supported:
+    name: Sync supported versions
+    if: github.event_name == 'schedule' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate SUPPORTED.md from latest Morphe release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/update_supported.py --output SUPPORTED.md
+
+      - name: Commit changes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet -- SUPPORTED.md; then
+            echo "SUPPORTED.md is already current."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add SUPPORTED.md
+          git commit -m "docs: sync Morphe supported YouTube versions"
+          git push
 
   build:
     name: Patch YouTube
@@ -100,7 +133,7 @@ jobs:
               cat dist/build-info.txt
               echo '```'
               echo
-              echo 'See **SUPPORTED.md** in the repository for the current Morphe-supported YouTube versions.'
+              echo 'See **SUPPORTED.md** for the current Morphe-supported YouTube versions.'
             else
               echo '❌ Build failed before a verified APK was produced.'
               echo
@@ -166,9 +199,24 @@ jobs:
 
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release edit "$tag" --title "$title" --notes-file release-notes.md
-            gh release upload "$tag"               dist/*.apk               dist/*-report.json               dist/*.sha256               dist/build-info.txt               dist/SUPPORTED.md               --clobber
+            gh release upload "$tag" \
+              dist/*.apk \
+              dist/*-report.json \
+              dist/*.sha256 \
+              dist/build-info.txt \
+              dist/SUPPORTED.md \
+              --clobber
           else
-            gh release create "$tag"               dist/*.apk               dist/*-report.json               dist/*.sha256               dist/build-info.txt               dist/SUPPORTED.md               --target "$GITHUB_SHA"               --title "$title"               --notes-file release-notes.md               "${prerelease_args[@]}"
+            gh release create "$tag" \
+              dist/*.apk \
+              dist/*-report.json \
+              dist/*.sha256 \
+              dist/build-info.txt \
+              dist/SUPPORTED.md \
+              --target "$GITHUB_SHA" \
+              --title "$title" \
+              --notes-file release-notes.md \
+              "${prerelease_args[@]}"
           fi
 
       - name: Upload diagnostics
