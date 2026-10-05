@@ -1,57 +1,87 @@
-# YouTube Morphe CorePatch Builder
+# Morphe Patched — YouTube CorePatch Builder
 
-GitHub Actions builder for **stock-package YouTube + Morphe patches** on ROMs that already provide **CorePatch / signature-verification bypass**.
+Build **Morphe-patched YouTube with the original package and original YouTube icon** for ROMs that already provide CorePatch / signature-verification bypass.
 
-This repository intentionally follows the build model that worked on HyperMOS:
+## What this builder guarantees
 
-- keeps package `com.google.android.youtube`;
-- disables **GmsCore support**;
-- disables Morphe **Spoof signature**;
-- builds with Morphe `--unsigned`;
-- preserves the **original Google APK Signing Block byte-for-byte**;
-- accepts the resulting digest mismatch because the target ROM's CorePatch handles signature verification;
-- never signs the output with the Morphe key.
+- package stays `com.google.android.youtube`;
+- `GmsCore support` is always disabled;
+- `Spoof signature` is always disabled;
+- `Custom branding` is always disabled, so the launcher/app-list icon and app name stay stock YouTube;
+- Morphe runs with `--unsigned` — the APK is not re-signed with the Morphe key;
+- the output must retain the same Google YouTube signing certificates as the source;
+- any failed Morphe patch/rebuild makes the build fail;
+- output defaults to `arm64-v8a`.
 
-> This output is for a ROM with a compatible CorePatch/signature bypass. A normal stock Android ROM is expected to reject it.
+> The resulting APK is intentionally for a ROM with compatible CorePatch/signature bypass. Stock Android normally rejects a modified APK whose original Google signature no longer matches the modified contents.
 
-## Quick use
+## Repository tree
 
-1. Open **Actions → Build YouTube CorePatch → Run workflow**.
-2. Paste a **direct public download URL** for an original YouTube `.apk`, `.apkm`, `.apks`, or `.xapk`.
-3. Choose the matching `source_format`.
-4. If possible, provide the source SHA-256.
-5. Run the workflow and download the `YouTube-Morphe-CorePatch` artifact.
+```
+.
+├── .github/
+│   └── workflows/
+│       └── build.yml
+├── config/
+│   └── defaults.env
+├── scripts/
+│   ├── apk_sigblock.py
+│   └── build.sh
+├── .gitignore
+├── LICENSE
+└── README.md
+```
 
-Known-good defaults are pinned to:
+## Build with GitHub Actions
 
-- Morphe Desktop `v1.18.0`
-- Morphe patches `v1.45.0`
-- ABI `arm64-v8a`
+Open **Actions → Build YouTube Morphe CorePatch → Run workflow**.
 
-You can change these inputs per build. Use `latest` only after you are ready to test a newer patch/toolchain combination.
+Required input:
 
-## Why `--unsigned`?
+- `source_url`: direct public URL to an original YouTube `.apk`, `.apkm`, `.apks`, or `.xapk`.
+- `source_format`: matching file format.
 
-Signing the modified YouTube APK with a new Morphe/debug key changes the identity seen by components outside YouTube, including Google Play Services. On the tested CorePatch ROM, the reliable setup was to keep the original Google signing block in the modified APK and let CorePatch bypass the now-invalid APK digest.
+Optional:
 
-The build fails if the final APK does **not** preserve the signing block from the original/merged source byte-for-byte.
+- `expected_sha256`: strongly recommended when you know the source hash.
+- Morphe Desktop / patch versions.
+- extra patch names to enable or disable.
 
-## Fail-fast checks
+The protected patches **cannot be re-enabled** through `extra_enable`:
 
-A build is rejected when any of these is true:
+- `GmsCore support`
+- `Spoof signature`
+- `Custom branding`
 
-- Morphe reports a failed patch or failed rebuild step;
-- output package is not `com.google.android.youtube`;
-- `GmsCore support` was accidentally applied;
-- `Spoof signature` was accidentally applied;
-- original APK Signing Block is missing or changes in the patched output;
-- optional source SHA-256 does not match.
+This is intentional. The last one is what keeps the output icon identical to normal YouTube instead of Morphe's default black branding icon.
 
-## Experimental YouTube versions
+## Known-good defaults
 
-Morphe can mark newer supported targets as experimental. That is separate from the CorePatch signing mechanism. Prefer a Morphe target not marked experimental when stability matters.
+- Morphe Desktop: `v1.18.0`
+- Morphe patches: `v1.45.0`
+- ABI: `arm64-v8a`
 
-Do not use `--force` by default: if Morphe says a YouTube version is incompatible, use a supported source version instead.
+The default tool assets are SHA-256 pinned in `config/defaults.env`.
+
+## Output
+
+A successful run uploads an artifact containing:
+
+- patched APK;
+- Morphe result JSON;
+- build log;
+- APK SHA-256;
+- build metadata.
+
+The result JSON is checked to ensure:
+
+- package is still `com.google.android.youtube`;
+- no failed patch exists;
+- patching/rebuilding succeeded;
+- there is no Morphe signing step;
+- GmsCore support / Spoof signature / Custom branding were not applied.
+
+The signing verifier then parses APK Signature Scheme v2/v3/v3.1 blocks directly and checks that the source and output expose the same Google YouTube certificate set. For split bundles, this is more reliable than comparing the whole signing block byte-for-byte because Morphe merges the splits before patching.
 
 ## Local build
 
@@ -59,10 +89,10 @@ Requirements: Java 21, curl, jq, Python 3, sha256sum.
 
 ```bash
 export SOURCE_FILE=/path/to/youtube.apkm
-./scripts/build.sh
+bash scripts/build.sh
 ```
 
-Optional environment variables:
+Optional:
 
 ```bash
 export MORPHE_PATCHES_VERSION=v1.45.0
@@ -73,12 +103,10 @@ export EXTRA_DISABLE='Patch one,Patch two'
 export EXTRA_ENABLE='Patch three'
 ```
 
-Outputs are written to `dist/` with an APK, Morphe JSON report, build log, SHA-256 file, and build metadata.
+Build results are written to `dist/`.
 
 ## Source APKs
 
-This repo does **not** redistribute YouTube APKs. Provide an original source file/URL yourself. This keeps the builder reproducible without committing Google binaries into Git.
+This repository does not redistribute YouTube APKs. Supply the original source yourself.
 
-## Licensing
-
-This repository contains only builder scripts/configuration. Morphe Desktop and Morphe patches are downloaded from their upstream releases and remain under their respective upstream licenses. YouTube is owned by Google and is not included in this repository.
+YouTube is owned by Google. Morphe Desktop and Morphe patches remain subject to their upstream licenses.
