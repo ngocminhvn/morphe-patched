@@ -1,6 +1,10 @@
 input/
 work/
 dist/
+source.env
+release-notes.md
+__pycache__/
+*.pyc
 *.apk
 *.apkm
 *.apks
