@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import html as html_lib
 import http.cookiejar
 import os
 import re
@@ -80,27 +81,56 @@ def is_release_overview(url: str) -> bool:
     return path.endswith("-release")
 
 
-def link_context(html: str, href: str) -> str:
-    """Return nearby row text for an APKMirror variant link."""
-    needle = href.replace("&", "&amp;")
-    pos = html.find(needle)
-    if pos < 0:
-        pos = html.find(href)
-    if pos < 0:
-        return ""
+def select_release_variant(html: str, base_url: str) -> str | None:
+    """Select the best concrete APKMirror variant from a release page.
 
-    row_start = html.rfind('<div class="table-row', 0, pos)
-    if row_start < 0:
-        row_start = max(0, pos - 1500)
+    Priority:
+      1. universal + BUNDLE
+      2. universal
+      3. BUNDLE
+      4. first concrete variant
+    """
+    pattern = re.compile(
+        r'href=["\\\']([^"\\\']*-android-apk-download/[^"\\\']*)["\\\']',
+        re.I,
+    )
 
-    row_end = html.find('<div class="table-row', pos + 1)
-    if row_end < 0:
-        row_end = min(len(html), pos + 2500)
+    candidates: list[tuple[int, int, str]] = []
+    seen: set[str] = set()
 
-    chunk = html[row_start:row_end]
-    chunk = re.sub(r"<[^>]+>", " ", chunk)
-    chunk = chunk.replace("&nbsp;", " ").replace("&amp;", "&")
-    return re.sub(r"\\s+", " ", chunk).strip()
+    for match in pattern.finditer(html):
+        href = html_lib.unescape(match.group(1))
+        absolute = urllib.parse.urljoin(base_url, href)
+        if absolute in seen:
+            continue
+        seen.add(absolute)
+
+        start = max(0, match.start() - 3500)
+        end = min(len(html), match.end() + 3500)
+        context = html_lib.unescape(html[start:end])
+        context = re.sub(r"<[^>]+>", " ", context)
+        context = re.sub(r"\\s+", " ", context).lower()
+
+        score = 0
+        if re.search(r"\\buniversal\\b", context):
+            score += 10000
+        if re.search(r"\\bbundle\\b", context):
+            score += 3000
+        if "android 12l" in context or "api 32" in context:
+            score += 500
+        if "120-480dpi" in context or "120 - 480 dpi" in context:
+            score += 250
+
+        candidates.append((score, -match.start(), absolute))
+
+    if not candidates:
+        return None
+
+    candidates.sort(reverse=True)
+    score, _, selected = candidates[0]
+    print(f"APKMirror variant selected: {selected}", file=sys.stderr)
+    print(f"APKMirror variant score: {score}", file=sys.stderr)
+    return selected
 
 
 def score_link(base: str, href: str, text: str) -> int:
@@ -190,24 +220,24 @@ def resolve_apkmirror(url: str, out_tmp: Path) -> tuple[Path, str]:
         parser = LinkParser()
         parser.feed(html)
 
-        candidates = []
         release_page = is_release_overview(final_url)
 
+        # Release overview pages contain same-page anchors such as #downloads
+        # and multiple variants. Resolve the concrete variant deterministically
+        # before generic link scoring so the page cannot loop back to itself.
+        if release_page:
+            selected = select_release_variant(html, final_url)
+            if selected:
+                referer = final_url
+                current = selected
+                continue
+
+        candidates = []
         for href, text in parser.links:
             absolute = urllib.parse.urljoin(final_url, href)
             s = score_link(final_url, href, text)
-            if s < 0:
-                continue
-
-            # On a version overview page APKMirror can list many variants.
-            # Prefer the variant whose row says "universal". Direct variant,
-            # keyed download and file URLs keep their existing behavior.
-            if release_page and "android-apk-download" in urllib.parse.urlparse(absolute).path.lower():
-                context = f"{text} {link_context(html, href)}".lower()
-                if re.search(r"\\buniversal\\b", context):
-                    s += 5000
-
-            candidates.append((s, absolute))
+            if s >= 0:
+                candidates.append((s, absolute))
 
         for refresh in parser.meta_refresh:
             absolute = urllib.parse.urljoin(final_url, refresh)
@@ -288,6 +318,7 @@ def main() -> int:
     print(f"SOURCE_FILE={target.resolve()}")
     print(f"SOURCE_FORMAT={ext.lstrip('.')}")
     print(f"SOURCE_SIZE={target.stat().st_size}")
+    print(f"SOURCE_FINAL_URL={final_url}")
     return 0
 
 
