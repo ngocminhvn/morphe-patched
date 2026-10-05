@@ -1,4 +1,5 @@
-name: Build YouTube CorePatch
+name: Build YouTube Morphe CorePatch
+run-name: YouTube Morphe CorePatch • ${{ inputs.morphe_patches_version }}
 
 on:
   workflow_dispatch:
@@ -18,7 +19,7 @@ on:
           - apks
           - xapk
       expected_sha256:
-        description: Optional SHA-256 of source (recommended)
+        description: Optional SHA-256 of source
         required: false
         type: string
       morphe_patches_version:
@@ -48,10 +49,16 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: morphe-youtube-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
+    name: Patch YouTube
     runs-on: ubuntu-latest
     timeout-minutes: 45
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -71,17 +78,19 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p input
-          curl -fL --retry 5 --retry-delay 2 \
-            -A 'Mozilla/5.0' \
-            -o "input/youtube-original.${SOURCE_FORMAT}" \
-            "$SOURCE_URL"
-          ls -lh "input/youtube-original.${SOURCE_FORMAT}"
-          sha256sum "input/youtube-original.${SOURCE_FORMAT}"
+          target="input/youtube-original.${SOURCE_FORMAT}"
+
+          curl -fL             --retry 5             --retry-delay 2             --connect-timeout 30             -A 'Mozilla/5.0'             -o "$target"             "$SOURCE_URL"
+
+          test -s "$target"
+          ls -lh "$target"
+          sha256sum "$target"
+
           if [[ -n "$EXPECTED_SHA256" ]]; then
-            echo "$EXPECTED_SHA256  input/youtube-original.${SOURCE_FORMAT}" | sha256sum -c -
+            echo "$EXPECTED_SHA256  $target" | sha256sum -c -
           fi
 
-      - name: Patch for HyperMOS CorePatch
+      - name: Patch with Morphe
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -93,26 +102,35 @@ jobs:
           EXTRA_DISABLE: ${{ inputs.extra_disable }}
           EXTRA_ENABLE: ${{ inputs.extra_enable }}
           JAVA_XMX: 6g
-        run: ./scripts/build.sh
+        run: bash scripts/build.sh
 
       - name: Build summary
         if: always()
         shell: bash
         run: |
           {
-            echo '## YouTube Morphe CorePatch build'
+            echo '## YouTube Morphe CorePatch'
             if compgen -G 'dist/*.apk' > /dev/null; then
               echo '✅ Build succeeded'
               echo
-              cat dist/build-info.txt || true
+              echo '### Identity'
+              echo '- package: `com.google.android.youtube`'
+              echo '- icon: original YouTube'
+              echo '- GmsCore support: OFF'
+              echo '- Spoof signature: OFF'
+              echo '- Custom branding: OFF'
               echo
+              echo '### Build info'
+              echo '```'
+              cat dist/build-info.txt || true
               cat dist/*.sha256 || true
+              echo '```'
             else
-              echo '❌ Build did not produce an APK. Check the patch step log.'
+              echo '❌ Build failed before a verified APK was produced.'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload APK and report
+      - name: Upload verified APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
@@ -121,3 +139,14 @@ jobs:
           compression-level: 0
           retention-days: 7
           if-no-files-found: error
+
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-diagnostics
+          path: |
+            work/patch.log
+            work/report.json
+          retention-days: 3
+          if-no-files-found: ignore
