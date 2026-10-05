@@ -157,7 +157,7 @@ fi
 EXPERIMENTAL="$(jq -r '.experimental' <<< "$SUPPORT_JSON")"
 MIN_SDK="$(jq -r '.minSdk' <<< "$SUPPORT_JSON")"
 
-python3 "$ROOT_DIR/scripts/apk_sigblock.py" "$SOURCE_FILE" "$TEMP_OUTPUT"
+python3 "$ROOT_DIR/scripts/apk_sigblock.py" --preserve-source-block "$SOURCE_FILE" "$TEMP_OUTPUT"
 
 PATCH_VERSION="${PATCHES_TAG#v}"
 DESKTOP_VERSION="${DESKTOP_TAG#v}"
