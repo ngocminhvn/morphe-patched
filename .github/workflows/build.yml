@@ -47,6 +47,33 @@ jobs:
           grep -F '"Spoof signature"' scripts/build.sh
           grep -F '"Custom branding"' scripts/build.sh
 
+      - name: Validate latest Morphe release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          api() {
+            curl -fsSL               -H "Authorization: Bearer $GH_TOKEN"               -H "Accept: application/vnd.github+json"               "$1"
+          }
+
+          desktop_json="$(api https://api.github.com/repos/MorpheApp/morphe-desktop/releases/latest)"
+          patches_json="$(api https://api.github.com/repos/MorpheApp/morphe-patches/releases/latest)"
+
+          desktop_tag="$(jq -r '.tag_name // empty' <<< "$desktop_json")"
+          desktop_asset="$(jq -r '[.assets[]? | select(.name | endswith("-all.jar")) | .name][0] // empty' <<< "$desktop_json")"
+          patches_tag="$(jq -r '.tag_name // empty' <<< "$patches_json")"
+          patches_asset="$(jq -r '[.assets[]? | select(.name | endswith(".mpp")) | .name][0] // empty' <<< "$patches_json")"
+
+          test -n "$desktop_tag"
+          test -n "$desktop_asset"
+          test -n "$patches_tag"
+          test -n "$patches_asset"
+
+          echo "Morphe Desktop: $desktop_tag / $desktop_asset"
+          echo "Morphe patches: $patches_tag / $patches_asset"
+
   sync-supported:
     name: Sync supported versions
     if: github.event_name == 'schedule' || github.event_name == 'push'
