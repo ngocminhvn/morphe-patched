@@ -1,5 +1,5 @@
-name: Build YouTube Morphe CorePatch
-run-name: Morphe YouTube • ${{ github.event_name }}
+name: Build YouTube Morphe
+run-name: Build YouTube from URL
 
 on:
   push:
@@ -13,49 +13,12 @@ on:
   workflow_dispatch:
     inputs:
       source_url:
-        description: Direct public URL to original YouTube APK/APKM/APKS/XAPK
+        description: Direct APK/APKM link or any YouTube page on apkmirror.com
         required: true
-        type: string
-      source_format:
-        description: Source file format
-        required: true
-        default: apkm
-        type: choice
-        options:
-          - apk
-          - apkm
-          - apks
-          - xapk
-      expected_sha256:
-        description: Optional SHA-256 of source
-        required: false
-        type: string
-      morphe_patches_version:
-        description: Morphe patches tag, e.g. v1.45.0 or latest
-        required: true
-        default: v1.45.0
-        type: string
-      morphe_desktop_version:
-        description: Morphe Desktop tag, e.g. v1.18.0 or latest
-        required: true
-        default: v1.18.0
-        type: string
-      keep_archs:
-        description: Native architectures to keep, comma-separated
-        required: true
-        default: arm64-v8a
-        type: string
-      extra_disable:
-        description: Extra patch names to disable, comma-separated
-        required: false
-        type: string
-      extra_enable:
-        description: Extra patch names to enable, comma-separated
-        required: false
         type: string
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: morphe-youtube-${{ github.ref }}-${{ github.event_name }}
@@ -66,38 +29,28 @@ jobs:
     name: Validate repository
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Validate scripts and tree
+      - uses: actions/checkout@v4
+      - name: Validate scripts
         shell: bash
         run: |
           set -euo pipefail
-          test -f .github/workflows/build.yml
-          test -f config/defaults.env
-          test -f scripts/build.sh
-          test -f scripts/apk_sigblock.py
-
           bash -n scripts/build.sh
           python3 -m py_compile scripts/apk_sigblock.py
-
+          python3 -m py_compile scripts/fetch_source.py
+          python3 -m py_compile scripts/update_supported.py
           grep -F '"GmsCore support"' scripts/build.sh
           grep -F '"Spoof signature"' scripts/build.sh
           grep -F '"Custom branding"' scripts/build.sh
-          grep -F 'app_icon=original_youtube' scripts/build.sh
-
-          echo "Repository validation passed."
 
   build:
     name: Patch YouTube
     if: github.event_name == 'workflow_dispatch'
     needs: validate
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup Java 21
         uses: actions/setup-java@v5
@@ -105,40 +58,33 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Download original YouTube source
+      - name: Resolve and download YouTube source
+        id: source
         shell: bash
         env:
           SOURCE_URL: ${{ inputs.source_url }}
-          SOURCE_FORMAT: ${{ inputs.source_format }}
-          EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
         run: |
           set -euo pipefail
-          mkdir -p input
-          target="input/youtube-original.${SOURCE_FORMAT}"
+          python3 scripts/fetch_source.py "$SOURCE_URL" --output-dir input | tee source.env
+          cat source.env >> "$GITHUB_OUTPUT"
+          source source.env
+          sha256sum "$SOURCE_FILE"
+          ls -lh "$SOURCE_FILE"
 
-          curl -fL             --retry 5             --retry-delay 2             --connect-timeout 30             -A 'Mozilla/5.0'             -o "$target"             "$SOURCE_URL"
-
-          test -s "$target"
-          ls -lh "$target"
-          sha256sum "$target"
-
-          if [[ -n "$EXPECTED_SHA256" ]]; then
-            echo "$EXPECTED_SHA256  $target" | sha256sum -c -
-          fi
-
-      - name: Patch with Morphe
+      - name: Patch with latest Morphe release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          SOURCE_FILE: ${{ github.workspace }}/input/youtube-original.${{ inputs.source_format }}
-          EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
-          MORPHE_PATCHES_VERSION: ${{ inputs.morphe_patches_version }}
-          MORPHE_DESKTOP_VERSION: ${{ inputs.morphe_desktop_version }}
-          KEEP_ARCHS: ${{ inputs.keep_archs }}
-          EXTRA_DISABLE: ${{ inputs.extra_disable }}
-          EXTRA_ENABLE: ${{ inputs.extra_enable }}
+          SOURCE_FILE: ${{ steps.source.outputs.SOURCE_FILE }}
           JAVA_XMX: 6g
         run: bash scripts/build.sh
+
+      - name: Read build metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat dist/build-info.env >> "$GITHUB_OUTPUT"
 
       - name: Build summary
         if: always()
@@ -146,35 +92,84 @@ jobs:
         run: |
           {
             echo '## YouTube Morphe CorePatch'
-            if compgen -G 'dist/*.apk' > /dev/null; then
+            if [[ -f dist/build-info.txt ]]; then
               echo '✅ Build succeeded'
-              echo
-              echo '### Identity'
-              echo '- package: `com.google.android.youtube`'
-              echo '- icon: original YouTube'
-              echo '- GmsCore support: OFF'
-              echo '- Spoof signature: OFF'
-              echo '- Custom branding: OFF'
               echo
               echo '### Build info'
               echo '```'
-              cat dist/build-info.txt || true
-              cat dist/*.sha256 || true
+              cat dist/build-info.txt
               echo '```'
+              echo
+              echo 'See **SUPPORTED.md** in the repository for the current Morphe-supported YouTube versions.'
             else
               echo '❌ Build failed before a verified APK was produced.'
+              echo
+              echo 'Check **SUPPORTED.md** to make sure the selected YouTube version is supported by the latest Morphe patches.'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload verified APK
+      - name: Upload Actions artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: YouTube-Morphe-CorePatch
+          name: YouTube-${{ steps.meta.outputs.YOUTUBE_VERSION }}-Morphe
           path: dist/
           compression-level: 0
           retention-days: 7
           if-no-files-found: error
+
+      - name: Create or update GitHub Release
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          YOUTUBE_VERSION: ${{ steps.meta.outputs.YOUTUBE_VERSION }}
+          EXPERIMENTAL: ${{ steps.meta.outputs.EXPERIMENTAL }}
+          MORPHE_PATCHES_TAG: ${{ steps.meta.outputs.MORPHE_PATCHES_TAG }}
+          MORPHE_DESKTOP_TAG: ${{ steps.meta.outputs.MORPHE_DESKTOP_TAG }}
+          SOURCE_SHA256: ${{ steps.meta.outputs.SOURCE_SHA256 }}
+          APK_SHA256: ${{ steps.meta.outputs.APK_SHA256 }}
+        run: |
+          set -euo pipefail
+
+          patch_version="${MORPHE_PATCHES_TAG#v}"
+          tag="youtube-${YOUTUBE_VERSION}-morphe-${patch_version}"
+          title="YouTube ${YOUTUBE_VERSION} • Morphe ${MORPHE_PATCHES_TAG}"
+
+          status="Stable"
+          if [[ "$EXPERIMENTAL" == "true" ]]; then
+            status="Experimental"
+          fi
+
+          cat > release-notes.md <<EOF
+          ## YouTube ${YOUTUBE_VERSION}
+
+          - Morphe patches: **${MORPHE_PATCHES_TAG}** (latest at build time)
+          - Morphe Desktop: **${MORPHE_DESKTOP_TAG}**
+          - Morphe support status: **${status}**
+          - Package: `com.google.android.youtube`
+          - Icon: original YouTube
+          - GmsCore support: OFF
+          - Spoof signature: OFF
+          - Custom branding: OFF
+          - CorePatch/signature-verification bypass: **required**
+          - Source SHA-256: `${SOURCE_SHA256}`
+          - Output SHA-256: `${APK_SHA256}`
+
+          The source APK is not stored in this repository.
+          EOF
+
+          prerelease_args=()
+          if [[ "$EXPERIMENTAL" == "true" ]]; then
+            prerelease_args+=(--prerelease)
+          fi
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" --title "$title" --notes-file release-notes.md
+            gh release upload "$tag"               dist/*.apk               dist/*-report.json               dist/*.sha256               dist/build-info.txt               dist/SUPPORTED.md               --clobber
+          else
+            gh release create "$tag"               dist/*.apk               dist/*-report.json               dist/*.sha256               dist/build-info.txt               dist/SUPPORTED.md               --target "$GITHUB_SHA"               --title "$title"               --notes-file release-notes.md               "${prerelease_args[@]}"
+          fi
 
       - name: Upload diagnostics
         if: failure()
@@ -182,7 +177,9 @@ jobs:
         with:
           name: build-diagnostics
           path: |
+            source.env
             work/patch.log
             work/report.json
+            work/support.json
           retention-days: 3
           if-no-files-found: ignore
