@@ -37,7 +37,7 @@ def collect(data: dict):
 
     for patch in data.get("patches", []):
         pkg = next(
-            (p for p in patch.get("compatiblePackages", []) if p.get("packageName") == PACKAGE),
+            (p for p in (patch.get("compatiblePackages") or []) if p.get("packageName") == PACKAGE),
             None,
         )
         if not pkg:
