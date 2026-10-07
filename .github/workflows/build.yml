@@ -201,21 +201,28 @@ jobs:
           esac
 
           patch_version="${patches_tag#v}"
-          tag="${APP}-${version}-morphe-${patch_version}"
+          tag="morphe-${patch_version}"
+
+          case "$APP" in
+            youtube) expected_asset="Youtube-${version}-morphe-${patch_version}-NeedCorePatch.apk" ;;
+            youtube-music) expected_asset="YoutubeMusic-${version}-morphe-${patch_version}-NeedCorePatch.apk" ;;
+            reddit) expected_asset="Reddit-${version}-morphe-${patch_version}-NeedCorePatch.apk" ;;
+          esac
 
           echo "target_version=$version" >> "$GITHUB_OUTPUT"
           echo "patches_tag=$patches_tag" >> "$GITHUB_OUTPUT"
           echo "release_tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "expected_asset=$expected_asset" >> "$GITHUB_OUTPUT"
           echo "source_url=$source_url" >> "$GITHUB_OUTPUT"
 
-          if gh release view "$tag" >/dev/null 2>&1; then
+          if gh release view "$tag" --json assets --jq '.assets[].name' 2>/dev/null | grep -Fxq "$expected_asset"; then
             echo "should_build=false" >> "$GITHUB_OUTPUT"
-            echo "reason=release-exists" >> "$GITHUB_OUTPUT"
-            echo "$APP $version with Morphe $patches_tag is already released; skipping."
+            echo "reason=asset-exists" >> "$GITHUB_OUTPUT"
+            echo "$expected_asset already exists in $tag; skipping."
           else
             echo "should_build=true" >> "$GITHUB_OUTPUT"
-            echo "reason=new-stable-target" >> "$GITHUB_OUTPUT"
-            echo "New target: $APP $version with Morphe $patches_tag"
+            echo "reason=missing-bundle-asset" >> "$GITHUB_OUTPUT"
+            echo "Missing bundle asset: $expected_asset"
             echo "Source: $source_url"
           fi
 
