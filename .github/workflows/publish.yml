@@ -89,11 +89,11 @@ jobs:
             fi
 
             notes="$(mktemp)"
-            cat > "$notes" <<EOF
-- Morphe patches: **${MORPHE_PATCHES_TAG}** (latest at build time)
-- Morphe Desktop: **${MORPHE_DESKTOP_TAG}**
-- Morphe support status: **${status}**
-EOF
+            printf '%s\n' \
+              "- Morphe patches: **${MORPHE_PATCHES_TAG}** (latest at build time)" \
+              "- Morphe Desktop: **${MORPHE_DESKTOP_TAG}**" \
+              "- Morphe support status: **${status}**" \
+              > "$notes"
 
             if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
               gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
