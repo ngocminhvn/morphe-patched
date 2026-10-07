@@ -140,6 +140,72 @@ jobs:
           git commit -m "docs: sync Morphe support docs"
           git push
 
+  migrate-current-releases:
+    name: Merge current releases
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Merge v1.46.0 into one release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf bundle
+          mkdir -p bundle
+
+          for tag in \
+            youtube-21.16.256-morphe-1.46.0 \
+            youtube-music-9.20.53-morphe-1.46.0 \
+            reddit-2026.24.0-morphe-1.46.0
+          do
+            gh release download "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern '*.apk' \
+              --dir bundle
+          done
+
+          mapfile -t apks < <(find bundle -maxdepth 1 -type f -name '*.apk' -print | sort)
+          if (( ${#apks[@]} != 3 )); then
+            echo "Expected 3 APKs, found ${#apks[@]}" >&2
+            exit 3
+          fi
+
+          notes="$(mktemp)"
+          {
+            echo "- Morphe patches: **v1.46.0**"
+            echo "- Morphe Desktop: **v1.18.1**"
+            echo "- Bundle: **YouTube + YouTube Music + Reddit**"
+            echo
+            echo "### APKs"
+            for apk in "${apks[@]}"; do
+              printf -- '- `%s`\n' "$(basename "$apk")"
+            done
+          } > "$notes"
+
+          if gh release view morphe-1.46.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload morphe-1.46.0 "${apks[@]}" \
+              --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit morphe-1.46.0 \
+              --repo "$GITHUB_REPOSITORY" \
+              --title 'Morphe Patched v1.46.0' \
+              --notes-file "$notes"
+          else
+            gh release create morphe-1.46.0 "${apks[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target main \
+              --title 'Morphe Patched v1.46.0' \
+              --notes-file "$notes"
+          fi
+
+          for tag in \
+            youtube-21.16.256-morphe-1.46.0 \
+            youtube-music-9.20.53-morphe-1.46.0 \
+            reddit-2026.24.0-morphe-1.46.0
+          do
+            gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes
+          done
+
   build:
     name: Patch ${{ matrix.app }}
     if: ${{ always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && (needs.validate.result == 'success' || needs.validate.result == 'skipped') }}
