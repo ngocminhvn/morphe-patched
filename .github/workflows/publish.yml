@@ -1,0 +1,117 @@
+name: Publish Morphe Releases
+run-name: Publish releases from build #${{ github.event.workflow_run.run_number }}
+
+on:
+  workflow_run:
+    workflows:
+      - Morphe Multi-App Builder
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: morphe-publish-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish APK releases
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --dir artifacts || true
+          find artifacts -maxdepth 3 -type f -print | sort
+
+      - name: Publish releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          mapfile -t infos < <(find artifacts -type f -name build-info.env -print | sort)
+          if (( ${#infos[@]} == 0 )); then
+            echo "No build-info.env found; nothing to publish."
+            exit 0
+          fi
+
+          read_value() {
+            local key="$1" file="$2"
+            sed -n "s/^${key}=//p" "$file" | head -n1
+          }
+
+          for info in "${infos[@]}"; do
+            dir="$(dirname "$info")"
+            APP_KEY="$(read_value APP_KEY "$info")"
+            APP_SLUG="$(read_value APP_SLUG "$info")"
+            APP_VERSION="$(read_value APP_VERSION "$info")"
+            EXPERIMENTAL="$(read_value EXPERIMENTAL "$info")"
+            MORPHE_DESKTOP_TAG="$(read_value MORPHE_DESKTOP_TAG "$info")"
+            MORPHE_PATCHES_TAG="$(read_value MORPHE_PATCHES_TAG "$info")"
+
+            case "$APP_KEY" in
+              youtube) APP_NAME="YouTube" ;;
+              youtube-music) APP_NAME="YouTube Music" ;;
+              reddit) APP_NAME="Reddit" ;;
+              *)
+                echo "Unknown APP_KEY in $info: $APP_KEY" >&2
+                exit 2
+                ;;
+            esac
+
+            apks=("$dir"/*.apk)
+            if (( ${#apks[@]} != 1 )); then
+              echo "Expected exactly one APK in $dir, found ${#apks[@]}" >&2
+              exit 3
+            fi
+
+            patch_version="${MORPHE_PATCHES_TAG#v}"
+            tag="${APP_SLUG}-${APP_VERSION}-morphe-${patch_version}"
+            title="${APP_NAME} ${APP_VERSION} • Morphe ${MORPHE_PATCHES_TAG}"
+            status="Stable"
+            prerelease_args=()
+            if [[ "$EXPERIMENTAL" == "true" ]]; then
+              status="Experimental"
+              prerelease_args+=(--prerelease)
+            fi
+
+            notes="$(mktemp)"
+            cat > "$notes" <<EOF
+- Morphe patches: **${MORPHE_PATCHES_TAG}** (latest at build time)
+- Morphe Desktop: **${MORPHE_DESKTOP_TAG}**
+- Morphe support status: **${status}**
+EOF
+
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
+                --title "$title" --notes-file "$notes"
+              gh release upload "$tag" "${apks[0]}" --repo "$GITHUB_REPOSITORY" --clobber
+
+              while IFS= read -r asset; do
+                [[ -z "$asset" || "$asset" == *.apk ]] && continue
+                gh release delete-asset "$tag" "$asset" \
+                  --repo "$GITHUB_REPOSITORY" --yes
+              done < <(gh release view "$tag" --repo "$GITHUB_REPOSITORY" \
+                --json assets --jq '.assets[].name')
+            else
+              gh release create "$tag" "${apks[0]}" \
+                --repo "$GITHUB_REPOSITORY" \
+                --target "$HEAD_SHA" \
+                --title "$title" \
+                --notes-file "$notes" \
+                "${prerelease_args[@]}"
+            fi
+          done
