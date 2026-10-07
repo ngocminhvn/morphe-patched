@@ -246,7 +246,7 @@ def resolve_apkmirror(url: str, out_tmp: Path) -> tuple[Path, str]:
         if not candidates:
             raise RuntimeError(
                 "Could not find an APKMirror download link. "
-                "Use a YouTube release/variant/download page or a direct file URL."
+                "Use a supported app release/variant/download page or a direct file URL."
             )
 
         candidates.sort(key=lambda x: x[0], reverse=True)
@@ -289,7 +289,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("url")
     ap.add_argument("--output-dir", default="input")
-    ap.add_argument("--name", default="youtube-original")
+    ap.add_argument("--name", default="source-original")
     args = ap.parse_args()
 
     parsed = urllib.parse.urlparse(args.url)
@@ -299,7 +299,7 @@ def main() -> int:
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    with tempfile.TemporaryDirectory(prefix="yt-source-") as td:
+    with tempfile.TemporaryDirectory(prefix="app-source-") as td:
         tmp = Path(td) / "download.bin"
         host = (parsed.hostname or "").lower()
 
