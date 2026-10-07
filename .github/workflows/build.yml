@@ -141,11 +141,11 @@ jobs:
           git push
 
   migrate-current-releases:
-    name: Merge current releases
+    name: Create combined current release
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
-      - name: Merge v1.46.0 into one release
+      - name: Create v1.46.0 bundle from successful build artifacts
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -154,20 +154,14 @@ jobs:
           rm -rf bundle
           mkdir -p bundle
 
-          for tag in \
-            youtube-21.16.256-morphe-1.46.0 \
-            youtube-music-9.20.53-morphe-1.46.0 \
-            reddit-2026.24.0-morphe-1.46.0
-          do
-            gh release download "$tag" \
-              --repo "$GITHUB_REPOSITORY" \
-              --pattern '*.apk' \
-              --dir bundle
-          done
+          gh run download 37650275924 \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir bundle
 
-          mapfile -t apks < <(find bundle -maxdepth 1 -type f -name '*.apk' -print | sort)
+          mapfile -t apks < <(find bundle -type f -name '*.apk' -print | sort)
           if (( ${#apks[@]} != 3 )); then
             echo "Expected 3 APKs, found ${#apks[@]}" >&2
+            find bundle -type f -print >&2
             exit 3
           fi
 
@@ -197,14 +191,6 @@ jobs:
               --title 'Morphe Patched v1.46.0' \
               --notes-file "$notes"
           fi
-
-          for tag in \
-            youtube-21.16.256-morphe-1.46.0 \
-            youtube-music-9.20.53-morphe-1.46.0 \
-            reddit-2026.24.0-morphe-1.46.0
-          do
-            gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes
-          done
 
   build:
     name: Patch ${{ matrix.app }}
