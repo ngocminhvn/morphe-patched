@@ -132,40 +132,6 @@ jobs:
           git commit -m "docs: sync Morphe supported app versions"
           git push
 
-  cleanup-youtube-release:
-    name: Clean existing YouTube release
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Keep only APK and slim release notes
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-
-          tag="youtube-21.16.256-morphe-1.45.0"
-
-          cat > /tmp/release-notes.md <<'EOF'
-          - Morphe patches: **v1.45.0** (latest at build time)
-          - Morphe Desktop: **v1.18.1**
-          - Morphe support status: **Stable**
-          EOF
-
-          gh release edit "$tag" \
-            --repo "$GITHUB_REPOSITORY" \
-            --notes-file /tmp/release-notes.md
-
-          while IFS= read -r asset; do
-            [[ -z "$asset" || "$asset" == *.apk ]] && continue
-            gh release delete-asset "$tag" "$asset" \
-              --repo "$GITHUB_REPOSITORY" \
-              --yes
-          done < <(gh release view "$tag" \
-            --repo "$GITHUB_REPOSITORY" \
-            --json assets \
-            --jq '.assets[].name')
-
   build:
     name: Patch ${{ matrix.app }}
     if: ${{ always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && (needs.validate.result == 'success' || needs.validate.result == 'skipped') }}
