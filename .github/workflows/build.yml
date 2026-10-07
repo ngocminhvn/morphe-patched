@@ -142,14 +142,14 @@ jobs:
 
   build:
     name: Patch ${{ matrix.app }}
-    if: ${{ always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && (needs.validate.result == 'success' || needs.validate.result == 'skipped') }}
+    if: ${{ always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || github.event_name == 'push') && (needs.validate.result == 'success' || needs.validate.result == 'skipped') }}
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        app: ${{ fromJSON(github.event_name == 'schedule' && '["youtube","youtube-music","reddit"]' || format('["{0}"]', inputs.app)) }}
+        app: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'push') && '["youtube","youtube-music","reddit"]' || format('["{0}"]', inputs.app)) }}
 
     steps:
       - uses: actions/checkout@v4
@@ -215,7 +215,12 @@ jobs:
           echo "expected_asset=$expected_asset" >> "$GITHUB_OUTPUT"
           echo "source_url=$source_url" >> "$GITHUB_OUTPUT"
 
-          if gh release view "$tag" --json assets --jq '.assets[].name' 2>/dev/null | grep -Fxq "$expected_asset"; then
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            echo "reason=forced-bundle-test" >> "$GITHUB_OUTPUT"
+            echo "Forced bundle test: $APP $version with Morphe $patches_tag"
+            echo "Source: $source_url"
+          elif gh release view "$tag" --json assets --jq '.assets[].name' 2>/dev/null | grep -Fxq "$expected_asset"; then
             echo "should_build=false" >> "$GITHUB_OUTPUT"
             echo "reason=asset-exists" >> "$GITHUB_OUTPUT"
             echo "$expected_asset already exists in $tag; skipping."
