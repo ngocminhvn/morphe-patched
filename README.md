@@ -32,3 +32,5 @@ The list is generated automatically from Morphe's latest `patches-list.json` and
 Current support data is synced automatically from:
 
 https://github.com/MorpheApp/morphe-patches/releases/
+
+<!-- one-time release build test -->
