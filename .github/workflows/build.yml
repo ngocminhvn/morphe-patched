@@ -52,6 +52,7 @@ jobs:
           python3 -m py_compile scripts/apk_sigblock.py
           python3 -m py_compile scripts/fetch_source.py
           python3 -m py_compile scripts/update_supported.py
+          python3 -m py_compile scripts/update_readme.py
           grep -F '"GmsCore support"' scripts/build.sh
           grep -F '"Clone app"' scripts/build.sh
           grep -F '"Spoof signature"' scripts/build.sh
@@ -111,25 +112,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Generate SUPPORTED.md from latest Morphe release
+      - name: Generate support docs from latest Morphe release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/update_supported.py --output SUPPORTED.md
+        run: |
+          set -euo pipefail
+          python3 scripts/update_supported.py \
+            --output SUPPORTED.md \
+            --json-output /tmp/support.json
+          python3 scripts/update_readme.py \
+            --json /tmp/support.json \
+            --output README.md
 
       - name: Commit changes
         shell: bash
         run: |
           set -euo pipefail
 
-          if git diff --quiet -- SUPPORTED.md; then
-            echo "SUPPORTED.md is already current."
+          if git diff --quiet -- SUPPORTED.md README.md; then
+            echo "Support docs are already current."
             exit 0
           fi
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add SUPPORTED.md
-          git commit -m "docs: sync Morphe supported app versions"
+          git add SUPPORTED.md README.md
+          git commit -m "docs: sync Morphe support docs"
           git push
 
   build:
