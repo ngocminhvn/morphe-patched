@@ -1,5 +1,5 @@
 name: Publish Morphe Releases
-run-name: Publish releases from build #${{ github.event.workflow_run.run_number }}
+run-name: Publish bundle from build #${{ github.event.workflow_run.run_number }}
 
 on:
   workflow_run:
@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   publish:
-    name: Publish APK releases
+    name: Publish combined APK release
     if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
@@ -33,7 +33,7 @@ jobs:
           gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --dir artifacts || true
           find artifacts -maxdepth 3 -type f -print | sort
 
-      - name: Publish releases
+      - name: Publish combined release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -53,66 +53,90 @@ jobs:
             sed -n "s/^${key}=//p" "$file" | head -n1
           }
 
+          first_info="${infos[0]}"
+          MORPHE_PATCHES_TAG="$(read_value MORPHE_PATCHES_TAG "$first_info")"
+          MORPHE_DESKTOP_TAG="$(read_value MORPHE_DESKTOP_TAG "$first_info")"
+          test -n "$MORPHE_PATCHES_TAG"
+          test -n "$MORPHE_DESKTOP_TAG"
+
+          for info in "${infos[@]}"; do
+            test "$(read_value MORPHE_PATCHES_TAG "$info")" = "$MORPHE_PATCHES_TAG"
+          done
+
+          patch_version="${MORPHE_PATCHES_TAG#v}"
+          tag="morphe-${patch_version}"
+          title="Morphe Patched ${MORPHE_PATCHES_TAG}"
+
+          declare -a all_apks=()
           for info in "${infos[@]}"; do
             dir="$(dirname "$info")"
-            APP_KEY="$(read_value APP_KEY "$info")"
-            APP_SLUG="$(read_value APP_SLUG "$info")"
-            APP_VERSION="$(read_value APP_VERSION "$info")"
-            EXPERIMENTAL="$(read_value EXPERIMENTAL "$info")"
-            MORPHE_DESKTOP_TAG="$(read_value MORPHE_DESKTOP_TAG "$info")"
-            MORPHE_PATCHES_TAG="$(read_value MORPHE_PATCHES_TAG "$info")"
-
-            case "$APP_KEY" in
-              youtube) APP_NAME="YouTube" ;;
-              youtube-music) APP_NAME="YouTube Music" ;;
-              reddit) APP_NAME="Reddit" ;;
-              *)
-                echo "Unknown APP_KEY in $info: $APP_KEY" >&2
-                exit 2
-                ;;
-            esac
-
             apks=("$dir"/*.apk)
             if (( ${#apks[@]} != 1 )); then
               echo "Expected exactly one APK in $dir, found ${#apks[@]}" >&2
               exit 3
             fi
+            all_apks+=("${apks[0]}")
+          done
 
-            patch_version="${MORPHE_PATCHES_TAG#v}"
-            tag="${APP_SLUG}-${APP_VERSION}-morphe-${patch_version}"
-            title="${APP_NAME} ${APP_VERSION} • Morphe ${MORPHE_PATCHES_TAG}"
-            status="Stable"
-            prerelease_args=()
-            if [[ "$EXPERIMENTAL" == "true" ]]; then
-              status="Experimental"
-              prerelease_args+=(--prerelease)
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if (( ${#all_apks[@]} != 3 )); then
+              echo "Refusing to create incomplete bundle $tag: expected 3 APKs, found ${#all_apks[@]}."
+              exit 0
             fi
 
             notes="$(mktemp)"
             printf '%s\n' \
-              "- Morphe patches: **${MORPHE_PATCHES_TAG}** (latest at build time)" \
+              "- Morphe patches: **${MORPHE_PATCHES_TAG}**" \
               "- Morphe Desktop: **${MORPHE_DESKTOP_TAG}**" \
-              "- Morphe support status: **${status}**" \
+              "- Bundle: **YouTube + YouTube Music + Reddit**" \
               > "$notes"
 
-            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-              gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
-                --title "$title" --notes-file "$notes"
-              gh release upload "$tag" "${apks[0]}" --repo "$GITHUB_REPOSITORY" --clobber
+            gh release create "$tag" "${all_apks[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$TARGET_BRANCH" \
+              --title "$title" \
+              --notes-file "$notes"
+          else
+            for info in "${infos[@]}"; do
+              dir="$(dirname "$info")"
+              APP_KEY="$(read_value APP_KEY "$info")"
+              apks=("$dir"/*.apk)
+              apk="${apks[0]}"
+              keep_asset="$(basename "$apk")"
 
-              keep_asset="$(basename "${apks[0]}")"
+              case "$APP_KEY" in
+                youtube) prefix="Youtube-" ;;
+                youtube-music) prefix="YoutubeMusic-" ;;
+                reddit) prefix="Reddit-" ;;
+                *)
+                  echo "Unknown APP_KEY in $info: $APP_KEY" >&2
+                  exit 2
+                  ;;
+              esac
+
+              gh release upload "$tag" "$apk" --repo "$GITHUB_REPOSITORY" --clobber
+
               while IFS= read -r asset; do
                 [[ -z "$asset" || "$asset" == "$keep_asset" ]] && continue
+                [[ "$asset" == "$prefix"* ]] || continue
                 gh release delete-asset "$tag" "$asset" \
                   --repo "$GITHUB_REPOSITORY" --yes
               done < <(gh release view "$tag" --repo "$GITHUB_REPOSITORY" \
                 --json assets --jq '.assets[].name')
-            else
-              gh release create "$tag" "${apks[0]}" \
-                --repo "$GITHUB_REPOSITORY" \
-                --target "$TARGET_BRANCH" \
-                --title "$title" \
-                --notes-file "$notes" \
-                "${prerelease_args[@]}"
-            fi
-          done
+            done
+          fi
+
+          notes="$(mktemp)"
+          {
+            echo "- Morphe patches: **${MORPHE_PATCHES_TAG}**"
+            echo "- Morphe Desktop: **${MORPHE_DESKTOP_TAG}**"
+            echo "- Bundle: **YouTube + YouTube Music + Reddit**"
+            echo
+            echo "### APKs"
+            gh release view "$tag" --repo "$GITHUB_REPOSITORY" \
+              --json assets --jq '.assets[].name' | sort | sed 's/^/- `/; s/$/`/'
+          } > "$notes"
+
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
+            --title "$title" \
+            --notes-file "$notes"
