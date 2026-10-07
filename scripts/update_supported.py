@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import datetime as dt
 import json
 import os
 import re
@@ -11,7 +10,21 @@ from pathlib import Path
 
 API = "https://api.github.com/repos/MorpheApp/morphe-patches/releases/latest"
 RAW = "https://raw.githubusercontent.com/MorpheApp/morphe-patches/{tag}/patches-list.json"
-PACKAGE = "com.google.android.youtube"
+
+APPS = {
+    "youtube": {
+        "name": "YouTube",
+        "package": "com.google.android.youtube",
+    },
+    "youtube-music": {
+        "name": "YouTube Music",
+        "package": "com.google.android.apps.youtube.music",
+    },
+    "reddit": {
+        "name": "Reddit",
+        "package": "com.reddit.frontpage",
+    },
+}
 
 
 def get_json(url: str):
@@ -31,13 +44,17 @@ def version_key(v: str):
     return tuple(int(x) for x in re.findall(r"\d+", v))
 
 
-def collect(data: dict):
+def collect(data: dict, package_name: str):
     versions = {}
     default_total = 0
 
     for patch in data.get("patches", []):
         pkg = next(
-            (p for p in (patch.get("compatiblePackages") or []) if p.get("packageName") == PACKAGE),
+            (
+                p
+                for p in (patch.get("compatiblePackages") or [])
+                if p.get("packageName") == package_name
+            ),
             None,
         )
         if not pkg:
@@ -74,35 +91,57 @@ def collect(data: dict):
     return rows, default_total
 
 
-def markdown(tag: str, release_url: str, published_at: str | None, rows: list[dict], default_total: int):
+def app_section(app_name: str, rows: list[dict], default_total: int):
     stable = [r for r in rows if not r["experimental"]]
     experimental = [r for r in rows if r["experimental"]]
     recommended = stable[0]["version"] if stable else (rows[0]["version"] if rows else "unknown")
 
     lines = [
-        "# Supported YouTube versions",
+        f"## {app_name}",
         "",
-        "This file is generated automatically from Morphe's latest `patches-list.json`.",
-        "",
-        f"- Morphe patches: **{tag}**",
-        f"- Latest stable/recommended YouTube target: **{recommended}**",
+        f"- Latest stable/recommended target: **{recommended}**",
         f"- Stable targets: **{len(stable)}**",
         f"- Experimental targets: **{len(experimental)}**",
-    ]
-    if published_at:
-        lines.append(f"- Morphe release published: **{published_at}**")
-    lines += [
         "",
-        "| YouTube | Status | minSdk | Default patches supporting target |",
+        f"| {app_name} | Status | minSdk | Default patches supporting target |",
         "|---|---|---:|---:|",
     ]
 
     for r in rows:
         status = "🟢 Stable" if not r["experimental"] else "🧪 Experimental"
         lines.append(
-            f"| `{r['version']}` | {status} | {r['minSdk'] if r['minSdk'] is not None else '-'} | "
+            f"| `{r['version']}` | {status} | "
+            f"{r['minSdk'] if r['minSdk'] is not None else '-'} | "
             f"{r['defaultPatches']}/{default_total} |"
         )
+
+    return lines
+
+
+def markdown(
+    tag: str,
+    release_url: str,
+    published_at: str | None,
+    data: dict,
+    app_key: str | None,
+):
+    keys = [app_key] if app_key else list(APPS)
+    title = f"# Supported {APPS[app_key]['name']} versions" if app_key else "# Supported app versions"
+
+    lines = [
+        title,
+        "",
+        "This file is generated automatically from Morphe's latest `patches-list.json`.",
+        "",
+        f"- Morphe patches: **{tag}**",
+    ]
+    if published_at:
+        lines.append(f"- Morphe release published: **{published_at}**")
+
+    for key in keys:
+        meta = APPS[key]
+        rows, default_total = collect(data, meta["package"])
+        lines += [""] + app_section(meta["name"], rows, default_total)
 
     lines += [
         "",
@@ -119,6 +158,7 @@ def main() -> int:
     ap.add_argument("--output", default="SUPPORTED.md")
     ap.add_argument("--json-output")
     ap.add_argument("--tag")
+    ap.add_argument("--app", choices=sorted(APPS))
     args = ap.parse_args()
 
     if args.tag:
@@ -132,24 +172,60 @@ def main() -> int:
         published = latest.get("published_at")
 
     data = get_json(RAW.format(tag=tag))
-    rows, default_total = collect(data)
 
     output = Path(args.output)
-    output.write_text(markdown(tag, release_url, published, rows, default_total), encoding="utf-8")
+    output.write_text(
+        markdown(tag, release_url, published, data, args.app),
+        encoding="utf-8",
+    )
 
-    payload = {
-        "patchesTag": tag,
-        "patchesVersion": data.get("version"),
-        "releaseUrl": release_url,
-        "publishedAt": published,
-        "defaultYouTubePatches": default_total,
-        "versions": rows,
-    }
     if args.json_output:
-        Path(args.json_output).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        if args.app:
+            meta = APPS[args.app]
+            rows, default_total = collect(data, meta["package"])
+            payload = {
+                "patchesTag": tag,
+                "patchesVersion": data.get("version"),
+                "releaseUrl": release_url,
+                "publishedAt": published,
+                "appKey": args.app,
+                "appName": meta["name"],
+                "packageName": meta["package"],
+                "defaultPatches": default_total,
+                "versions": rows,
+            }
+        else:
+            apps = {}
+            for key, meta in APPS.items():
+                rows, default_total = collect(data, meta["package"])
+                apps[key] = {
+                    "appName": meta["name"],
+                    "packageName": meta["package"],
+                    "defaultPatches": default_total,
+                    "versions": rows,
+                }
+            payload = {
+                "patchesTag": tag,
+                "patchesVersion": data.get("version"),
+                "releaseUrl": release_url,
+                "publishedAt": published,
+                "apps": apps,
+            }
 
-    print(f"patches_tag={tag}")
-    print(f"supported_versions={','.join(r['version'] for r in rows)}")
+        Path(args.json_output).write_text(
+            json.dumps(payload, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+    if args.app:
+        rows, _ = collect(data, APPS[args.app]["package"])
+        print(f"app={args.app}")
+        print(f"patches_tag={tag}")
+        print(f"supported_versions={','.join(r['version'] for r in rows)}")
+    else:
+        print(f"patches_tag={tag}")
+        print(f"apps={','.join(APPS)}")
+
     return 0
 
 

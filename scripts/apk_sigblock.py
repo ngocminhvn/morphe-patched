@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Verify the Google YouTube signing identity without verifying APK content digests.
+"""Verify the original app signing identity without verifying APK content digests.
 
-CorePatch-targeted builds intentionally modify the APK while preserving Google's
-signing identity. For split bundles Morphe may rebuild the signing block layout,
-so certificate identity is compared instead of requiring byte-for-byte equality.
+CorePatch-targeted builds intentionally modify the APK while preserving the
+original certificate identity. For split bundles Morphe may rebuild the signing
+block layout, so certificate identity is compared instead of requiring
+byte-for-byte equality.
 """
 from __future__ import annotations
 
@@ -22,10 +23,19 @@ SCHEME_IDS = {
     0x1B93AD61: "v3.1",
 }
 
-# Google YouTube certificates accepted by Morphe v1.45.0.
-GOOGLE_YOUTUBE_CERTS = {
-    "3d7a1223019aa39d9ea0e3436ab7c0896bfb4fb679f4de5fe7c23f326c8f994a",
-    "5aad2bee6db95d17e05a08d7d1e64c10a1511879154483916b6ae6c7fd9cb0c6",
+# Signing certificates declared by Morphe compatibility metadata.
+APP_CERTS = {
+    "youtube": {
+        "3d7a1223019aa39d9ea0e3436ab7c0896bfb4fb679f4de5fe7c23f326c8f994a",
+        "5aad2bee6db95d17e05a08d7d1e64c10a1511879154483916b6ae6c7fd9cb0c6",
+    },
+    "youtube-music": {
+        "6a2f65ec694a6a632acdcb5080912a565f903d4b8d83f0eb8e44fbdf2660d8e1",
+        "a2a1ad7ba7f41dfca4514e2afeb90691719af6d0fdbed4b09bbf0ed897701ceb",
+    },
+    "reddit": {
+        "970b91143813b4c9d5f3634f672c9fcaa5621b4efaaedafd6c235cbbb869736f",
+    },
 }
 
 
@@ -187,6 +197,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("source", type=Path)
     parser.add_argument("patched", type=Path)
+    parser.add_argument("--app", required=True, choices=sorted(APP_CERTS))
     parser.add_argument("--print-only", action="store_true")
     parser.add_argument(
         "--preserve-source-block",
@@ -220,8 +231,9 @@ def main() -> int:
     if args.print_only:
         return 0
 
-    if not source_certs or not (source_certs & GOOGLE_YOUTUBE_CERTS):
-        print("ERROR: source is not signed with a recognized Google YouTube certificate")
+    expected_certs = APP_CERTS[args.app]
+    if not source_certs or not (source_certs & expected_certs):
+        print(f"ERROR: source is not signed with a recognized {args.app} certificate")
         return 2
 
     if source_certs != patched_certs:
@@ -234,7 +246,7 @@ def main() -> int:
         print("ERROR: direct-APK signing block changed")
         return 4
 
-    print("OK: Google YouTube signing identity preserved")
+    print(f"OK: {args.app} signing identity preserved")
     return 0
 
 

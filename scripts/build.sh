@@ -5,17 +5,44 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=/dev/null
 source "$ROOT_DIR/config/defaults.env"
 
-: "${SOURCE_FILE:?Set SOURCE_FILE to an original YouTube APK/APKM/APKS/XAPK file}"
+: "${SOURCE_FILE:?Set SOURCE_FILE to an original APK/APKM/APKS/XAPK file}"
 
+APP="${APP:-youtube}"
 KEEP_ARCHS="${KEEP_ARCHS:-arm64-v8a}"
 JAVA_XMX="${JAVA_XMX:-6g}"
 WORK_DIR="${WORK_DIR:-$ROOT_DIR/work}"
 DIST_DIR="${DIST_DIR:-$ROOT_DIR/dist}"
 
+case "$APP" in
+  youtube)
+    APP_NAME="YouTube"
+    APP_SLUG="youtube"
+    PACKAGE_NAME="com.google.android.youtube"
+    ;;
+  youtube-music)
+    APP_NAME="YouTube Music"
+    APP_SLUG="youtube-music"
+    PACKAGE_NAME="com.google.android.apps.youtube.music"
+    ;;
+  reddit)
+    APP_NAME="Reddit"
+    APP_SLUG="reddit"
+    PACKAGE_NAME="com.reddit.frontpage"
+    ;;
+  *)
+    echo "Unsupported APP: $APP" >&2
+    exit 2
+    ;;
+esac
+
+# These patches can alter package/signature/icon identity or move Google apps
+# away from stock Google Play Services. Keep them disabled for CorePatch ROMs.
 PROTECTED_PATCHES=(
   "GmsCore support"
+  "Clone app"
   "Spoof signature"
   "Custom branding"
+  "App icon"
 )
 
 for cmd in java curl jq python3 sha256sum; do
@@ -82,6 +109,7 @@ PATCHES_TAG="${patches_info[0]}"
 PATCHES_URL="${patches_info[1]}"
 PATCHES_DIGEST="${patches_info[2]:-}"
 
+echo "App: $APP_NAME ($PACKAGE_NAME)"
 echo "Latest Morphe Desktop: $DESKTOP_TAG"
 echo "Latest Morphe patches: $PATCHES_TAG"
 
@@ -101,7 +129,11 @@ verify_digest() {
 verify_digest "$DESKTOP_DIGEST" "$MORPHE_JAR"
 verify_digest "$PATCHES_DIGEST" "$PATCHES_MPP"
 
-python3 "$ROOT_DIR/scripts/update_supported.py"   --tag "$PATCHES_TAG"   --output "$DIST_DIR/SUPPORTED.md"   --json-output "$WORK_DIR/support.json"
+python3 "$ROOT_DIR/scripts/update_supported.py" \
+  --tag "$PATCHES_TAG" \
+  --app "$APP" \
+  --output "$DIST_DIR/SUPPORTED.md" \
+  --json-output "$WORK_DIR/support.json"
 
 TEMP_OUTPUT="$WORK_DIR/patched-corepatch.apk"
 REPORT="$WORK_DIR/report.json"
@@ -131,15 +163,17 @@ printf '\n'
 [[ -s "$TEMP_OUTPUT" ]] || { echo "No output APK produced" >&2; exit 4; }
 [[ -s "$REPORT" ]] || { echo "No Morphe report produced" >&2; exit 4; }
 
-jq -e '
-  .packageName == "com.google.android.youtube"
+jq -e --arg pkg "$PACKAGE_NAME" '
+  .packageName == $pkg
   and (.failedPatches | length == 0)
   and (.patchingSteps | length >= 2)
   and ([.patchingSteps[].success] | all)
   and ([.patchingSteps[].step] | index("SIGNING") == null)
   and ([.appliedPatches[].name] | index("GmsCore support") == null)
+  and ([.appliedPatches[].name] | index("Clone app") == null)
   and ([.appliedPatches[].name] | index("Spoof signature") == null)
   and ([.appliedPatches[].name] | index("Custom branding") == null)
+  and ([.appliedPatches[].name] | index("App icon") == null)
 ' "$REPORT" >/dev/null || {
   echo "Morphe report validation failed" >&2
   cat "$REPORT" >&2
@@ -149,7 +183,7 @@ jq -e '
 VERSION="$(jq -r '.packageVersion' "$REPORT")"
 SUPPORT_JSON="$(jq -c --arg v "$VERSION" '.versions[] | select(.version == $v)' "$WORK_DIR/support.json" | head -n1)"
 if [[ -z "$SUPPORT_JSON" ]]; then
-  echo "YouTube $VERSION is not listed as supported by $PATCHES_TAG" >&2
+  echo "$APP_NAME $VERSION is not listed as supported by $PATCHES_TAG" >&2
   echo "See SUPPORTED.md for supported versions." >&2
   exit 6
 fi
@@ -157,11 +191,13 @@ fi
 EXPERIMENTAL="$(jq -r '.experimental' <<< "$SUPPORT_JSON")"
 MIN_SDK="$(jq -r '.minSdk' <<< "$SUPPORT_JSON")"
 
-python3 "$ROOT_DIR/scripts/apk_sigblock.py" --preserve-source-block "$SOURCE_FILE" "$TEMP_OUTPUT"
+python3 "$ROOT_DIR/scripts/apk_sigblock.py" \
+  --app "$APP" \
+  --preserve-source-block \
+  "$SOURCE_FILE" "$TEMP_OUTPUT"
 
 PATCH_VERSION="${PATCHES_TAG#v}"
-DESKTOP_VERSION="${DESKTOP_TAG#v}"
-OUTPUT_BASENAME="YouTube-${VERSION}-Morphe-${PATCH_VERSION}-CorePatch-GoogleCert"
+OUTPUT_BASENAME="${APP_SLUG}-${VERSION}-Morphe-${PATCH_VERSION}-CorePatch-OriginalCert"
 
 FINAL_APK="$DIST_DIR/$OUTPUT_BASENAME.apk"
 FINAL_REPORT="$DIST_DIR/$OUTPUT_BASENAME-report.json"
@@ -176,25 +212,33 @@ APK_SHA256="$(sha256sum "$FINAL_APK" | awk '{print $1}')"
 printf '%s  %s\n' "$APK_SHA256" "$(basename "$FINAL_APK")" > "$DIST_DIR/$OUTPUT_BASENAME.sha256"
 
 cat > "$DIST_DIR/build-info.txt" <<EOF
-package=com.google.android.youtube
-youtube_version=$VERSION
-youtube_status=$([[ "$EXPERIMENTAL" == "true" ]] && echo experimental || echo stable)
+app_key=$APP
+app_name=$APP_NAME
+package=$PACKAGE_NAME
+version=$VERSION
+status=$([[ "$EXPERIMENTAL" == "true" ]] && echo experimental || echo stable)
 min_sdk=$MIN_SDK
 morphe_desktop=$DESKTOP_TAG
 morphe_patches=$PATCHES_TAG
 keep_archs=$KEEP_ARCHS
 gmscore_support=false
+clone_app=false
 spoof_signature=false
 custom_branding=false
-app_icon=original_youtube
-signing=morphe_unsigned_google_certificate_identity_preserved
+app_icon_patch=false
+app_icon=original
+signing=morphe_unsigned_original_certificate_identity_preserved
 corepatch_required=true
 source_sha256=$SOURCE_SHA256
 apk_sha256=$APK_SHA256
 EOF
 
 cat > "$DIST_DIR/build-info.env" <<EOF
-YOUTUBE_VERSION=$VERSION
+APP_KEY=$APP
+APP_NAME=$APP_NAME
+APP_SLUG=$APP_SLUG
+PACKAGE_NAME=$PACKAGE_NAME
+APP_VERSION=$VERSION
 EXPERIMENTAL=$EXPERIMENTAL
 MIN_SDK=$MIN_SDK
 MORPHE_DESKTOP_TAG=$DESKTOP_TAG
