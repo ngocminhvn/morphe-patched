@@ -17,16 +17,19 @@ case "$APP" in
   youtube)
     APP_NAME="YouTube"
     APP_SLUG="youtube"
+    OUTPUT_NAME="Youtube"
     PACKAGE_NAME="com.google.android.youtube"
     ;;
   youtube-music)
     APP_NAME="YouTube Music"
     APP_SLUG="youtube-music"
+    OUTPUT_NAME="YoutubeMusic"
     PACKAGE_NAME="com.google.android.apps.youtube.music"
     ;;
   reddit)
     APP_NAME="Reddit"
     APP_SLUG="reddit"
+    OUTPUT_NAME="Reddit"
     PACKAGE_NAME="com.reddit.frontpage"
     ;;
   *)
@@ -197,7 +200,7 @@ python3 "$ROOT_DIR/scripts/apk_sigblock.py" \
   "$SOURCE_FILE" "$TEMP_OUTPUT"
 
 PATCH_VERSION="${PATCHES_TAG#v}"
-OUTPUT_BASENAME="${APP_SLUG}-${VERSION}-Morphe-${PATCH_VERSION}-CorePatch-OriginalCert"
+OUTPUT_BASENAME="${OUTPUT_NAME}-${VERSION}-morphe-${PATCH_VERSION}-NeedCorePatch"
 
 FINAL_APK="$DIST_DIR/$OUTPUT_BASENAME.apk"
 FINAL_REPORT="$DIST_DIR/$OUTPUT_BASENAME-report.json"
