@@ -168,9 +168,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          source config/defaults.env
-          test -n "$RELEASE_TAG"
-
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             test -n "$MANUAL_SOURCE_URL"
             echo "should_build=true" >> "$GITHUB_OUTPUT"
@@ -207,7 +204,7 @@ jobs:
           esac
 
           patch_version="${patches_tag#v}"
-          tag="$RELEASE_TAG"
+          tag="morphe-${patch_version}"
           build_date="$(TZ=Asia/Ho_Chi_Minh date +%d%m%y)"
           case "$APP" in
             youtube) expected_asset="Youtube-${version}-morphe-${patch_version}-${build_date}.apk" ;;
@@ -221,12 +218,24 @@ jobs:
           echo "expected_asset=$expected_asset" >> "$GITHUB_OUTPUT"
           echo "source_url=$source_url" >> "$GITHUB_OUTPUT"
 
-          # Always update the SAME existing bundle release; never create a
-          # release just because upstream Morphe patches are newer.
-          if ! gh release view "$tag" --json assets --jq '[.assets[].name]' > "/tmp/$APP-release-assets.json"; then
-            echo "::error::Pinned release $tag not found; do not create another release."
-            exit 2
-          fi
+          # One combined release per Morphe patch version. A brand-new Morphe
+          # version has no release yet, so all three Stable apps must be built.
+          # Existing patch versions update only their missing/outdated APK.
+          http_code="$(curl -sS --retry 3 -o "/tmp/$APP-release.json" -w '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$tag")"
+          case "$http_code" in
+            200) jq -e '[.assets[].name]' "/tmp/$APP-release.json" > "/tmp/$APP-release-assets.json" ;;
+            404)
+              echo "New Morphe patch version: release $tag does not exist yet."
+              printf '[]\n' > "/tmp/$APP-release-assets.json"
+              ;;
+            *)
+              echo "::error::Could not inspect release $tag (HTTP $http_code)"
+              exit 2
+              ;;
+          esac
 
           # Build date is NOT an update trigger: accept any DDMMYY suffix,
           # but reject old NeedCorePatch names so they migrate once.
@@ -240,7 +249,7 @@ jobs:
             echo "should_build=true" >> "$GITHUB_OUTPUT"
             echo "reason=missing-bundle-asset" >> "$GITHUB_OUTPUT"
             echo "Current Stable APK missing: $expected_asset"
-            echo "Will update existing release: $tag"
+            echo "Publish destination: $tag (create only if new Morphe version and 3 APKs built)"
             echo "Source: $source_url"
           fi
 
@@ -374,9 +383,8 @@ jobs:
             --json-output /tmp/auto-supported.json
 
           upstream_tag="$(jq -er '.patchesTag' /tmp/auto-supported.json)"
-          source config/defaults.env
-          release_tag="$RELEASE_TAG"
-          test -n "$upstream_tag" && test -n "$release_tag"
+          test -n "$upstream_tag"
+          release_tag="morphe-${upstream_tag#v}"
 
           # Distinguish a genuinely missing release (404) from GitHub API
           # failures. A network/auth error must NEVER be shown as "no update".
