@@ -53,6 +53,8 @@ jobs:
           python3 -m py_compile scripts/fetch_source.py
           python3 -m py_compile scripts/update_supported.py
           python3 -m py_compile scripts/update_readme.py
+          python3 -m py_compile scripts/report_stable_updates.py
+          python3 -m unittest discover -s tests -p 'test_report_stable_updates.py'
           grep -F '"GmsCore support"' scripts/build.sh
           grep -F '"Clone app"' scripts/build.sh
           grep -F '"Spoof signature"' scripts/build.sh
@@ -274,13 +276,24 @@ jobs:
         run: |
           {
             echo '## Morphe CorePatch'
-            if [[ "${{ steps.plan.outputs.should_build }}" != "true" ]]; then
-              echo '✅ Already current — build skipped'
+            if [[ "${{ steps.plan.outcome }}" != "success" ]]; then
+              echo '❌ Không xác định được phiên bản Stable cần build.'
+              echo 'Xem bước Resolve build target để biết lỗi API hoặc dữ liệu upstream.'
+            elif [[ "${{ steps.plan.outputs.should_build }}" != "true" ]]; then
+              echo '### ✅ KHÔNG CÓ CẬP NHẬT STABLE'
+              echo
+              echo 'APK Stable đúng phiên bản và Morphe patch đã có trong release.'
+              echo '**Không cần build lại hoặc tạo release mới.**'
               echo
               echo '- App: `${{ matrix.app }}`'
-              echo '- Stable target: `${{ steps.plan.outputs.target_version }}`'
+              echo '- Stable đang được upstream khuyến nghị: `${{ steps.plan.outputs.target_version }}`'
               echo '- Morphe patches: `${{ steps.plan.outputs.patches_tag }}`'
-              echo '- Existing release: `${{ steps.plan.outputs.release_tag }}`'
+              echo '- Release hiện có: [`${{ steps.plan.outputs.release_tag }}`](../../releases/tag/${{ steps.plan.outputs.release_tag }})'
+              echo '- APK đã xác nhận: `${{ steps.plan.outputs.expected_asset }}`'
+              echo '- Lý do skip: `asset-exists`'
+              echo
+              echo '> Các bản Experimental không được tự động build.'
+              echo "::notice title=No Stable update::${{ matrix.app }} — Stable ${{ steps.plan.outputs.target_version }} already exists in ${{ steps.plan.outputs.release_tag }}; build skipped."
             elif [[ -f dist/build-info.txt ]]; then
               echo '✅ Build succeeded'
               echo
@@ -320,3 +333,53 @@ jobs:
             work/support.json
           retention-days: 3
           if-no-files-found: ignore
+
+  stable-update-report:
+    name: Stable check summary (3 apps)
+    needs: build
+    if: ${{ always() && github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare recommended Stable APKs against published release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: |
+          set -euo pipefail
+          python3 scripts/update_supported.py \
+            --output /tmp/auto-supported.md \
+            --json-output /tmp/auto-supported.json
+
+          upstream_tag="$(jq -er '.patchesTag' /tmp/auto-supported.json)"
+          release_tag="morphe-${upstream_tag#v}"
+
+          # Distinguish a genuinely missing release (404) from GitHub API
+          # failures. A network/auth error must NEVER be shown as "no update".
+          http_code="$(curl -sS --retry 3 \
+            -o /tmp/auto-release.json \
+            -w '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$release_tag")"
+          case "$http_code" in
+            200)
+              jq '[.assets[].name]' /tmp/auto-release.json > /tmp/auto-assets.json
+              ;;
+            404)
+              printf '[]\n' > /tmp/auto-assets.json
+              ;;
+            *)
+              echo "::error::Cannot inspect release $release_tag (HTTP $http_code)"
+              exit 1
+              ;;
+          esac
+
+          python3 scripts/report_stable_updates.py \
+            --metadata /tmp/auto-supported.json \
+            --assets /tmp/auto-assets.json \
+            --build-result "$BUILD_RESULT" \
+            --summary "$GITHUB_STEP_SUMMARY"
