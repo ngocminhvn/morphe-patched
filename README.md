@@ -28,8 +28,8 @@ For YouTube and YouTube Music, this keeps the stock Google Play Services sign-in
 
 ## Release output
 
-The repository keeps **one combined GitHub Release** (three APKs: YouTube, YouTube Music and Reddit).
-A new Stable target updates only that app's APK inside the existing release; no new release is created.
+Each Morphe patches version has **one combined GitHub Release** (three APKs: YouTube, YouTube Music and Reddit).
+When Morphe patches releases a new version, the workflow builds all three Stable APKs and creates a new Release. Later Stable app updates replace only that app's APK within the matching Morphe Release; older releases are preserved.
 
 APK filenames use Vietnam build date in `DDMMYY` format, with no `NeedCorePatch` suffix:
 
