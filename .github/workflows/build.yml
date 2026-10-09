@@ -294,7 +294,6 @@ jobs:
               echo '- Lý do skip: `asset-exists`'
               echo
               echo '> Các bản Experimental không được tự động build.'
-              echo "::notice title=No Stable update::${{ matrix.app }} — Stable ${{ steps.plan.outputs.target_version }} already exists in ${{ steps.plan.outputs.release_tag }}; build skipped."
             elif [[ -f dist/build-info.txt ]]; then
               echo '✅ Build succeeded'
               echo
@@ -311,6 +310,10 @@ jobs:
               echo 'Check SUPPORTED.md and APKMirror availability for the selected stable target.'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+          if [[ "${{ steps.plan.outcome }}" == "success" &&
+                "${{ steps.plan.outputs.should_build }}" == "false" ]]; then
+            echo "::notice title=No Stable update::${{ matrix.app }} Stable ${{ steps.plan.outputs.target_version }} already exists in ${{ steps.plan.outputs.release_tag }}; build skipped."
+          fi
 
       - name: Upload Actions artifact
         if: success() && steps.plan.outputs.should_build == 'true'
