@@ -25,9 +25,9 @@ META = {
     },
 }
 ASSETS = [
-    "Youtube-21.16.256-morphe-1.46.0-NeedCorePatch.apk",
-    "YoutubeMusic-9.20.53-morphe-1.46.0-NeedCorePatch.apk",
-    "Reddit-2026.24.0-morphe-1.46.0-NeedCorePatch.apk",
+    "Youtube-21.16.256-morphe-1.46.0-091026.apk",
+    "YoutubeMusic-9.20.53-morphe-1.46.0-091026.apk",
+    "Reddit-2026.24.0-morphe-1.46.0-091026.apk",
 ]
 
 
@@ -39,6 +39,18 @@ class StableReportTest(unittest.TestCase):
         self.assertIn("21.16.256", report)
         self.assertNotIn("21.40.161", report)
         self.assertIn("bỏ qua build", report)
+
+    def test_date_change_is_not_an_update(self):
+        new_date = [name.replace("091026", "101026") for name in ASSETS]
+        status, report = evaluate(META, new_date, "success")
+        self.assertEqual(status, "no-update")
+        self.assertIn("morphe-1.46.0", report)
+
+    def test_old_needcorepatch_assets_are_migrated_once(self):
+        legacy = [name.replace("091026", "NeedCorePatch") for name in ASSETS]
+        status, report = evaluate(META, legacy, "success")
+        self.assertEqual(status, "pending-publish")
+        self.assertIn("3 APK Stable", report)
 
     def test_one_missing_asset(self):
         status, report = evaluate(META, ASSETS[:-1], "success")
