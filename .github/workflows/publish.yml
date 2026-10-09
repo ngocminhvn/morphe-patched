@@ -22,6 +22,8 @@ jobs:
     if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: Download build artifacts
         shell: bash
         env:
@@ -53,6 +55,8 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
+          source config/defaults.env
+          test -n "$RELEASE_TAG"
 
           mapfile -t infos < <(find artifacts -type f -name build-info.env -print | sort)
           if (( ${#infos[@]} == 0 )); then
@@ -94,9 +98,8 @@ jobs:
             test "$(read_value MORPHE_PATCHES_TAG "$info")" = "$MORPHE_PATCHES_TAG"
           done
 
-          patch_version="${MORPHE_PATCHES_TAG#v}"
-          tag="morphe-${patch_version}"
-          title="Morphe Patched ${MORPHE_PATCHES_TAG}"
+          tag="$RELEASE_TAG"
+          title="Morphe Patched Stable — ${MORPHE_PATCHES_TAG}"
 
           declare -a all_apks=()
           for info in "${infos[@]}"; do
@@ -109,53 +112,50 @@ jobs:
             all_apks+=("${apks[0]}")
           done
 
-          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            if (( ${#all_apks[@]} != 3 )); then
-              echo "::error::Cannot publish incomplete Stable bundle $tag: expected 3 APKs, found ${#all_apks[@]}."
-              exit 1
-            fi
-
-            notes="$(mktemp)"
-            printf '%s\n' \
-              "- Morphe patches: **${MORPHE_PATCHES_TAG}**" \
-              "- Morphe Desktop: **${MORPHE_DESKTOP_TAG}**" \
-              "- Bundle: **YouTube + YouTube Music + Reddit**" \
-              > "$notes"
-
-            gh release create "$tag" "${all_apks[@]}" \
-              --repo "$GITHUB_REPOSITORY" \
-              --target "$TARGET_BRANCH" \
-              --title "$title" \
-              --notes-file "$notes"
-          else
-            for info in "${infos[@]}"; do
-              dir="$(dirname "$info")"
-              APP_KEY="$(read_value APP_KEY "$info")"
-              apks=("$dir"/*.apk)
-              apk="${apks[0]}"
-              keep_asset="$(basename "$apk")"
-
-              case "$APP_KEY" in
-                youtube) prefix="Youtube-" ;;
-                youtube-music) prefix="YoutubeMusic-" ;;
-                reddit) prefix="Reddit-" ;;
-                *)
-                  echo "Unknown APP_KEY in $info: $APP_KEY" >&2
-                  exit 2
-                  ;;
-              esac
-
-              gh release upload "$tag" "$apk" --repo "$GITHUB_REPOSITORY" --clobber
-
-              while IFS= read -r asset; do
-                [[ -z "$asset" || "$asset" == "$keep_asset" ]] && continue
-                [[ "$asset" == "$prefix"* ]] || continue
-                gh release delete-asset "$tag" "$asset" \
-                  --repo "$GITHUB_REPOSITORY" --yes
-              done < <(gh release view "$tag" --repo "$GITHUB_REPOSITORY" \
-                --json assets --jq '.assets[].name')
-            done
+          # Reuse exactly ONE existing release, even if upstream Morphe patches
+          # update. Never call "gh release create".
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null; then
+            echo "::error::Existing release $tag is missing. Refusing to create another release."
+            exit 1
           fi
+
+          # Upload ONLY the app(s) that were rebuilt. Keep the other apps'
+          # already published APKs untouched.
+          for info in "${infos[@]}"; do
+            dir="$(dirname "$info")"
+            APP_KEY="$(read_value APP_KEY "$info")"
+            apks=("$dir"/*.apk)
+            if (( ${#apks[@]} != 1 )); then
+              echo "::error::Expected one APK in $dir, got ${#apks[@]}."
+              exit 3
+            fi
+            apk="${apks[0]}"
+            keep_asset="$(basename "$apk")"
+
+            case "$APP_KEY" in
+              youtube) prefix="Youtube-" ;;
+              youtube-music) prefix="YoutubeMusic-" ;;
+              reddit) prefix="Reddit-" ;;
+              *)
+                echo "::error::Unknown APP_KEY: $APP_KEY"
+                exit 2
+                ;;
+            esac
+
+            # Only delete obsolete versions for THIS app AFTER its new APK
+            # was successfully uploaded. Includes old NeedCorePatch assets.
+            echo "Updating $APP_KEY -> $keep_asset in existing release $tag"
+            gh release upload "$tag" "$apk" --repo "$GITHUB_REPOSITORY" --clobber
+
+            mapfile -t present < <(gh release view "$tag" --repo "$GITHUB_REPOSITORY" \
+              --json assets --jq '.assets[].name')
+            for asset in "${present[@]}"; do
+              [[ "$asset" == "$keep_asset" ]] && continue
+              [[ "$asset" == "$prefix"* && "$asset" == *.apk ]] || continue
+              gh release delete-asset "$tag" "$asset" \
+                --repo "$GITHUB_REPOSITORY" --yes
+            done
+          done
 
           notes="$(mktemp)"
           {
