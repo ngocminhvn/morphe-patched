@@ -55,6 +55,7 @@ jobs:
           python3 -m py_compile scripts/update_supported.py
           python3 -m py_compile scripts/update_readme.py
           python3 -m py_compile scripts/report_stable_updates.py
+          python3 -m py_compile scripts/asset_naming.py
           python3 -m unittest discover -s tests -p 'test_report_stable_updates.py'
           grep -F '"GmsCore support"' scripts/build.sh
           grep -F '"Clone app"' scripts/build.sh
@@ -167,6 +168,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          source config/defaults.env
+          test -n "$RELEASE_TAG"
 
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             test -n "$MANUAL_SOURCE_URL"
@@ -204,12 +207,12 @@ jobs:
           esac
 
           patch_version="${patches_tag#v}"
-          tag="morphe-${patch_version}"
-
+          tag="$RELEASE_TAG"
+          build_date="$(TZ=Asia/Ho_Chi_Minh date +%d%m%y)"
           case "$APP" in
-            youtube) expected_asset="Youtube-${version}-morphe-${patch_version}-NeedCorePatch.apk" ;;
-            youtube-music) expected_asset="YoutubeMusic-${version}-morphe-${patch_version}-NeedCorePatch.apk" ;;
-            reddit) expected_asset="Reddit-${version}-morphe-${patch_version}-NeedCorePatch.apk" ;;
+            youtube) expected_asset="Youtube-${version}-morphe-${patch_version}-${build_date}.apk" ;;
+            youtube-music) expected_asset="YoutubeMusic-${version}-morphe-${patch_version}-${build_date}.apk" ;;
+            reddit) expected_asset="Reddit-${version}-morphe-${patch_version}-${build_date}.apk" ;;
           esac
 
           echo "target_version=$version" >> "$GITHUB_OUTPUT"
@@ -218,14 +221,26 @@ jobs:
           echo "expected_asset=$expected_asset" >> "$GITHUB_OUTPUT"
           echo "source_url=$source_url" >> "$GITHUB_OUTPUT"
 
-          if gh release view "$tag" --json assets --jq '.assets[].name' 2>/dev/null | grep -Fxq "$expected_asset"; then
+          # Always update the SAME existing bundle release; never create a
+          # release just because upstream Morphe patches are newer.
+          if ! gh release view "$tag" --json assets --jq '[.assets[].name]' > "/tmp/$APP-release-assets.json"; then
+            echo "::error::Pinned release $tag not found; do not create another release."
+            exit 2
+          fi
+
+          # Build date is NOT an update trigger: accept any DDMMYY suffix,
+          # but reject old NeedCorePatch names so they migrate once.
+          if python3 scripts/asset_naming.py \
+            --app "$APP" --version "$version" --patches-version "$patch_version" \
+            --assets-file "/tmp/$APP-release-assets.json"; then
             echo "should_build=false" >> "$GITHUB_OUTPUT"
             echo "reason=asset-exists" >> "$GITHUB_OUTPUT"
-            echo "$expected_asset already exists in $tag; skipping."
+            echo "Stable $APP $version / Morphe $patch_version already exists in $tag; skipping."
           else
             echo "should_build=true" >> "$GITHUB_OUTPUT"
             echo "reason=missing-bundle-asset" >> "$GITHUB_OUTPUT"
-            echo "Missing bundle asset: $expected_asset"
+            echo "Current Stable APK missing: $expected_asset"
+            echo "Will update existing release: $tag"
             echo "Source: $source_url"
           fi
 
@@ -290,7 +305,7 @@ jobs:
               echo '- Stable đang được upstream khuyến nghị: `${{ steps.plan.outputs.target_version }}`'
               echo '- Morphe patches: `${{ steps.plan.outputs.patches_tag }}`'
               echo '- Release hiện có: [`${{ steps.plan.outputs.release_tag }}`](../../releases/tag/${{ steps.plan.outputs.release_tag }})'
-              echo '- APK đã xác nhận: `${{ steps.plan.outputs.expected_asset }}`'
+              echo '- Khuôn dạng APK hiện có: `<App>-${{ steps.plan.outputs.target_version }}-morphe-${{ steps.plan.outputs.patches_tag }}-DDMMYY.apk`'
               echo '- Lý do skip: `asset-exists`'
               echo
               echo '> Các bản Experimental không được tự động build.'
