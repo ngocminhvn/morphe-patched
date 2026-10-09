@@ -374,7 +374,9 @@ jobs:
             --json-output /tmp/auto-supported.json
 
           upstream_tag="$(jq -er '.patchesTag' /tmp/auto-supported.json)"
-          release_tag="morphe-${upstream_tag#v}"
+          source config/defaults.env
+          release_tag="$RELEASE_TAG"
+          test -n "$upstream_tag" && test -n "$release_tag"
 
           # Distinguish a genuinely missing release (404) from GitHub API
           # failures. A network/auth error must NEVER be shown as "no update".
@@ -401,4 +403,5 @@ jobs:
             --metadata /tmp/auto-supported.json \
             --assets /tmp/auto-assets.json \
             --build-result "$BUILD_RESULT" \
+            --release-tag "$release_tag" \
             --summary "$GITHUB_STEP_SUMMARY"
