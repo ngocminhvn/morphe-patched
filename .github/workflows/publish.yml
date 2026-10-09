@@ -13,7 +13,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: morphe-publish-${{ github.event.workflow_run.id }}
+  group: morphe-publish-releases
   cancel-in-progress: false
 
 jobs:
@@ -55,9 +55,6 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          source config/defaults.env
-          test -n "$RELEASE_TAG"
-
           mapfile -t infos < <(find artifacts -type f -name build-info.env -print | sort)
           if (( ${#infos[@]} == 0 )); then
             if [[ "$SOURCE_EVENT" == "schedule" ]]; then
@@ -98,8 +95,8 @@ jobs:
             test "$(read_value MORPHE_PATCHES_TAG "$info")" = "$MORPHE_PATCHES_TAG"
           done
 
-          tag="$RELEASE_TAG"
-          title="Morphe Patched Stable — ${MORPHE_PATCHES_TAG}"
+          tag="morphe-${MORPHE_PATCHES_TAG#v}"
+          title="Morphe Patched ${MORPHE_PATCHES_TAG}"
 
           declare -a all_apks=()
           for info in "${infos[@]}"; do
@@ -112,15 +109,53 @@ jobs:
             all_apks+=("${apks[0]}")
           done
 
-          # Reuse exactly ONE existing release, even if upstream Morphe patches
-          # update. Never call "gh release create".
-          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null; then
-            echo "::error::Existing release $tag is missing. Refusing to create another release."
-            exit 1
+          # One release PER Morphe patches version:
+          # - New patch tag: create a brand-new COMPLETE three-app bundle.
+          # - Existing patch tag: replace only APKs built in this run.
+          # Releases of older Morphe versions remain untouched.
+          created_new_release=false
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $tag exists: update only rebuilt app APK(s)."
+          else
+            if (( ${#infos[@]} != 3 )); then
+              echo "::error::Cannot create $tag: new Morphe version requires 3 APKs, found ${#infos[@]}."
+              exit 3
+            fi
+            declare -A seen=()
+            for info in "${infos[@]}"; do
+              key="$(read_value APP_KEY "$info")"
+              case "$key" in
+                youtube|youtube-music|reddit) ;;
+                *) echo "::error::Invalid app in new release: $key"; exit 3 ;;
+              esac
+              if [[ -n "${seen[$key]:-}" ]]; then
+                echo "::error::Duplicate app in new release: $key"
+                exit 3
+              fi
+              seen[$key]=1
+            done
+            for key in youtube youtube-music reddit; do
+              [[ -n "${seen[$key]:-}" ]] || { echo "::error::Missing $key in new Morphe release"; exit 3; }
+            done
+
+            notes="$(mktemp)"
+            printf '%s\n' \
+              "- Morphe patches: **${MORPHE_PATCHES_TAG}**" \
+              "- Morphe Desktop: **${MORPHE_DESKTOP_TAG}**" \
+              "- Bundle: **YouTube + YouTube Music + Reddit (Stable)**" \
+              > "$notes"
+            gh release create "$tag" "${all_apks[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$TARGET_BRANCH" \
+              --title "$title" \
+              --notes-file "$notes"
+            created_new_release=true
+            echo "Created complete new release $tag with all three Stable APKs."
           fi
 
-          # Upload ONLY the app(s) that were rebuilt. Keep the other apps'
-          # already published APKs untouched.
+          # Do not reupload after creation; for a pre-existing release replace
+          # only the modified app and delete its previous APK after upload.
+          if [[ "$created_new_release" == "false" ]]; then
           for info in "${infos[@]}"; do
             dir="$(dirname "$info")"
             APP_KEY="$(read_value APP_KEY "$info")"
@@ -156,6 +191,7 @@ jobs:
                 --repo "$GITHUB_REPOSITORY" --yes
             done
           done
+          fi
 
           notes="$(mktemp)"
           {
@@ -178,6 +214,7 @@ jobs:
             echo "- Release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag"
             echo "- Morphe patches: `$MORPHE_PATCHES_TAG`"
             echo "- Số APK từ lượt build này: ${#all_apks[@]}"
+            echo "- Tạo Release mới: $created_new_release"
             echo "- Workflow nguồn: $SOURCE_RUN_URL"
             echo
             echo "### APK hiện có trong release"
