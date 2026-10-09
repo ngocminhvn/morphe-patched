@@ -30,7 +30,17 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts
-          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --dir artifacts || true
+
+          # "No artifacts" is valid when all Stable APKs already exist.
+          # An actual GitHub API/download failure must not be disguised as
+          # a successful no-update run.
+          available="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" \
+            --jq '[.artifacts[] | select(.expired == false)] | length')"
+          if (( available > 0 )); then
+            gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --dir artifacts
+          else
+            echo "Build #$RUN_ID produced no artifacts (normal for unchanged Stable versions)."
+          fi
           find artifacts -maxdepth 3 -type f -print | sort
 
       - name: Publish combined release
@@ -38,13 +48,34 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_BRANCH: ${{ github.event.repository.default_branch }}
+          SOURCE_EVENT: ${{ github.event.workflow_run.event }}
+          SOURCE_RUN_URL: ${{ github.event.workflow_run.html_url }}
         run: |
           set -euo pipefail
           shopt -s nullglob
 
           mapfile -t infos < <(find artifacts -type f -name build-info.env -print | sort)
           if (( ${#infos[@]} == 0 )); then
-            echo "No build-info.env found; nothing to publish."
+            if [[ "$SOURCE_EVENT" == "schedule" ]]; then
+              reason="Không có cập nhật Stable mới — cả ba APK đã tồn tại, không tạo release."
+              echo "::notice title=No new Stable release::$reason"
+            elif [[ "$SOURCE_EVENT" == "push" ]]; then
+              reason="Chỉ kiểm tra mã nguồn (push), không có yêu cầu build APK."
+              echo "::notice title=Validation only::No release needed for push checks."
+            else
+              reason="Không có APK từ build được kích hoạt thủ công; kiểm tra workflow nguồn."
+              echo "::warning title=No APK to publish::$reason"
+            fi
+            {
+              echo "## Kết quả phát hành Morphe"
+              echo
+              echo "**$reason**"
+              echo
+              echo "- Workflow nguồn: $SOURCE_RUN_URL"
+              echo "- Release hiện tại: https://github.com/$GITHUB_REPOSITORY/releases/latest"
+              echo
+              echo "> Không tự tạo release rỗng và không phát hành bản Experimental."
+            } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
 
@@ -80,8 +111,8 @@ jobs:
 
           if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             if (( ${#all_apks[@]} != 3 )); then
-              echo "Refusing to create incomplete bundle $tag: expected 3 APKs, found ${#all_apks[@]}."
-              exit 0
+              echo "::error::Cannot publish incomplete Stable bundle $tag: expected 3 APKs, found ${#all_apks[@]}."
+              exit 1
             fi
 
             notes="$(mktemp)"
@@ -140,3 +171,16 @@ jobs:
           gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
             --title "$title" \
             --notes-file "$notes"
+
+          {
+            echo "## Phát hành Stable thành công"
+            echo
+            echo "- Release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag"
+            echo "- Morphe patches: `$MORPHE_PATCHES_TAG`"
+            echo "- Số APK từ lượt build này: ${#all_apks[@]}"
+            echo "- Workflow nguồn: $SOURCE_RUN_URL"
+            echo
+            echo "### APK hiện có trong release"
+            gh release view "$tag" --repo "$GITHUB_REPOSITORY" \
+              --json assets --jq '.assets[].name' | sort | sed 's/^/- `/; s/$/`/'
+          } >> "$GITHUB_STEP_SUMMARY"
