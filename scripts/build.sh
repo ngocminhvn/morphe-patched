@@ -200,7 +200,10 @@ python3 "$ROOT_DIR/scripts/apk_sigblock.py" \
   "$SOURCE_FILE" "$TEMP_OUTPUT"
 
 PATCH_VERSION="${PATCHES_TAG#v}"
-OUTPUT_BASENAME="${OUTPUT_NAME}-${VERSION}-morphe-${PATCH_VERSION}-NeedCorePatch"
+# Build date follows Vietnam local time: 09 October 2026 -> 091026.
+# The check workflow compares app/version/patch independently of this date.
+BUILD_DATE="$(TZ=Asia/Ho_Chi_Minh date +%d%m%y)"
+OUTPUT_BASENAME="${OUTPUT_NAME}-${VERSION}-morphe-${PATCH_VERSION}-${BUILD_DATE}"
 
 FINAL_APK="$DIST_DIR/$OUTPUT_BASENAME.apk"
 FINAL_REPORT="$DIST_DIR/$OUTPUT_BASENAME-report.json"
