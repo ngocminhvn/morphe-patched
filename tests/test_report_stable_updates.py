@@ -52,6 +52,33 @@ class StableReportTest(unittest.TestCase):
         self.assertEqual(status, "pending-publish")
         self.assertIn("3 APK Stable", report)
 
+    def test_new_morphe_version_needs_new_three_app_release(self):
+        # Even unchanged Stable app versions must be rebuilt for a new
+        # Morphe patch release. Previous versions' APKs do not count.
+        data = {**META, "patchesTag": "v1.47.0"}
+        status, report = evaluate(data, ASSETS, "success")
+        self.assertEqual(status, "pending-publish")
+        self.assertIn("3 APK Stable", report)
+        self.assertIn("morphe-1.47.0", report)
+
+    def test_existing_version_updates_only_missing_app(self):
+        # An updated YouTube stable target does not require rebuilding the
+        # current YoutubeMusic / Reddit assets.
+        data = {
+            **META,
+            "apps": {
+                **META["apps"],
+                "youtube": {"versions": [
+                    {"version": "21.17.100", "experimental": False},
+                    {"version": "21.16.256", "experimental": False},
+                ]},
+            },
+        }
+        status, report = evaluate(data, ASSETS, "success")
+        self.assertEqual(status, "pending-publish")
+        self.assertIn("1 APK Stable", report)
+        self.assertIn("morphe-1.46.0", report)
+
     def test_one_missing_asset(self):
         status, report = evaluate(META, ASSETS[:-1], "success")
         self.assertEqual(status, "pending-publish")
