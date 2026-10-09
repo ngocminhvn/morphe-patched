@@ -12,6 +12,8 @@ import json
 import os
 from pathlib import Path
 
+from asset_naming import current_asset
+
 APPS = (
     ("youtube", "YouTube", "Youtube"),
     ("youtube-music", "YouTube Music", "YoutubeMusic"),
@@ -19,13 +21,12 @@ APPS = (
 )
 
 
-def evaluate(metadata: dict, assets: list[str], build_result: str) -> tuple[str, str]:
+def evaluate(metadata: dict, assets: list[str], build_result: str, release_tag: str = "morphe-1.46.0") -> tuple[str, str]:
     tag = metadata.get("patchesTag", "")
     if not tag.startswith("v") or not tag[1:]:
         raise ValueError("Missing or invalid upstream Morphe patch tag")
 
     patch_version = tag.removeprefix("v")
-    release_tag = f"morphe-{patch_version}"
     asset_names = set(assets)
     rows = []
     missing = 0
@@ -38,8 +39,10 @@ def evaluate(metadata: dict, assets: list[str], build_result: str) -> tuple[str,
         )
         if not stable:
             raise ValueError(f"No stable Morphe target for {title}; refusing to report current")
-        expected = f"{prefix}-{stable}-morphe-{patch_version}-NeedCorePatch.apk"
-        published = expected in asset_names
+        published = any(
+            current_asset(name, key, stable, patch_version)
+            for name in asset_names
+        )
         if not published:
             missing += 1
         state = "Đã phát hành — bỏ qua build" if published else "Chưa có APK đúng Stable — cần build"
@@ -71,7 +74,7 @@ def evaluate(metadata: dict, assets: list[str], build_result: str) -> tuple[str,
             f"**Kết luận: {headline}**",
             "",
             f"- Morphe patches mới nhất: **`{tag}`**",
-            f"- Release cần đối chiếu: [`{release_tag}`](../../releases/tag/{release_tag})",
+            f"- Release duy nhất: [`{release_tag}`](../../releases/tag/{release_tag})",
             f"- Trạng thái job build: **`{build_result}`**",
             "",
             "| Ứng dụng | Phiên bản Stable mới nhất | APK trong release | Quyết định |",
@@ -92,6 +95,7 @@ def main() -> int:
     parser.add_argument("--metadata", type=Path, required=True)
     parser.add_argument("--assets", type=Path, required=True)
     parser.add_argument("--build-result", required=True)
+    parser.add_argument("--release-tag", required=True)
     parser.add_argument("--summary", type=Path, required=True)
     args = parser.parse_args()
 
@@ -100,7 +104,7 @@ def main() -> int:
     if not isinstance(assets, list) or any(not isinstance(a, str) for a in assets):
         raise ValueError("Release assets must be a JSON array of strings")
 
-    status, report = evaluate(metadata, assets, args.build_result)
+    status, report = evaluate(metadata, assets, args.build_result, args.release_tag)
     with args.summary.open("a", encoding="utf-8") as f:
         f.write(report)
 
