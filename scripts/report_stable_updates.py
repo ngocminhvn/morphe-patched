@@ -21,12 +21,13 @@ APPS = (
 )
 
 
-def evaluate(metadata: dict, assets: list[str], build_result: str, release_tag: str = "morphe-1.46.0") -> tuple[str, str]:
+def evaluate(metadata: dict, assets: list[str], build_result: str, release_tag: str | None = None) -> tuple[str, str]:
     tag = metadata.get("patchesTag", "")
     if not tag.startswith("v") or not tag[1:]:
         raise ValueError("Missing or invalid upstream Morphe patch tag")
 
     patch_version = tag.removeprefix("v")
+    release_tag = release_tag or f"morphe-{patch_version}"
     asset_names = set(assets)
     rows = []
     missing = 0
@@ -74,7 +75,7 @@ def evaluate(metadata: dict, assets: list[str], build_result: str, release_tag: 
             f"**Kết luận: {headline}**",
             "",
             f"- Morphe patches mới nhất: **`{tag}`**",
-            f"- Release duy nhất: [`{release_tag}`](../../releases/tag/{release_tag})",
+            f"- Release tương ứng phiên bản Morphe: [`{release_tag}`](../../releases/tag/{release_tag})",
             f"- Trạng thái job build: **`{build_result}`**",
             "",
             "| Ứng dụng | Phiên bản Stable mới nhất | APK trong release | Quyết định |",
@@ -83,7 +84,7 @@ def evaluate(metadata: dict, assets: list[str], build_result: str, release_tag: 
             "",
             "**Lưu ý:** Chỉ theo dõi phiên bản Stable do Morphe đề xuất. "
             "Bản Experimental không kích hoạt auto-build. "
-            "Không tạo release mới khi tất cả APK Stable đã có.",
+            "Chỉ tạo Release mới khi Morphe có phiên bản patch mới và đủ ba APK Stable.",
             "",
         ]
     )
