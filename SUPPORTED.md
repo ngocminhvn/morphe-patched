@@ -2,26 +2,26 @@
 
 This file is generated automatically from Morphe's latest `patches-list.json`.
 
-- Morphe patches: **v1.46.0**
-- Morphe release published: **2026-10-06T11:42:42Z**
+- Morphe patches: **v1.47.0**
+- Morphe release published: **2026-10-11T15:20:10Z**
 
 ## YouTube
 
-- Latest stable/recommended target: **21.16.256**
+- Latest stable/recommended target: **21.20.405**
 - Stable targets: **4**
 - Experimental targets: **5**
 
 | YouTube | Status | minSdk | Default patches supporting target |
 |---|---|---:|---:|
-| `21.40.161` | 🧪 Experimental | 29 | 92/92 |
-| `21.39.522` | 🧪 Experimental | 29 | 92/92 |
-| `21.38.130` | 🧪 Experimental | 29 | 92/92 |
-| `21.28.208` | 🧪 Experimental | 29 | 92/92 |
-| `21.23.492` | 🧪 Experimental | 28 | 92/92 |
-| `21.16.256` | 🟢 Stable | 28 | 92/92 |
-| `21.13.164` | 🟢 Stable | 28 | 92/92 |
-| `20.51.39` | 🟢 Stable | 28 | 92/92 |
-| `20.21.37` | 🟢 Stable | 26 | 92/92 |
+| `21.40.161` | 🧪 Experimental | 29 | 96/96 |
+| `21.39.522` | 🧪 Experimental | 29 | 96/96 |
+| `21.38.130` | 🧪 Experimental | 29 | 96/96 |
+| `21.28.208` | 🧪 Experimental | 29 | 96/96 |
+| `21.23.492` | 🧪 Experimental | 28 | 96/96 |
+| `21.20.405` | 🟢 Stable | 28 | 96/96 |
+| `21.16.256` | 🟢 Stable | 28 | 96/96 |
+| `20.51.39` | 🟢 Stable | 28 | 96/96 |
+| `20.21.37` | 🟢 Stable | 26 | 96/96 |
 
 ## YouTube Music
 
@@ -40,19 +40,18 @@ This file is generated automatically from Morphe's latest `patches-list.json`.
 ## Reddit
 
 - Latest stable/recommended target: **2026.24.0**
-- Stable targets: **4**
+- Stable targets: **3**
 - Experimental targets: **3**
 
 | Reddit | Status | minSdk | Default patches supporting target |
 |---|---|---:|---:|
+| `2026.41.0` | 🧪 Experimental | 29 | 18/18 |
 | `2026.40.0` | 🧪 Experimental | 29 | 18/18 |
 | `2026.39.0` | 🧪 Experimental | 29 | 18/18 |
-| `2026.38.0` | 🧪 Experimental | 29 | 18/18 |
 | `2026.24.0` | 🟢 Stable | 29 | 18/18 |
-| `2026.14.0` | 🟢 Stable | 29 | 18/18 |
 | `2026.10.0` | 🟢 Stable | 28 | 18/18 |
 | `2024.02.0` | 🟢 Stable | 28 | 1/18 |
 
 > Experimental means Morphe supports patching the version but upstream does not consider it the recommended stable target yet.
 
-[Morphe patches release](https://github.com/MorpheApp/morphe-patches/releases/tag/v1.46.0)
+[Morphe patches release](https://github.com/MorpheApp/morphe-patches/releases/tag/v1.47.0)

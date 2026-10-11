@@ -4,11 +4,11 @@ CorePatch-oriented Morphe builder for **YouTube**, **YouTube Music**, and **Redd
 
 ## Current stable targets
 
-- Morphe patches: **v1.46.0**
+- Morphe patches: **v1.47.0**
 
 | App | Stable / recommended | minSdk | Default patches |
 |---|---:|---:|---:|
-| YouTube | **21.16.256** | 28 | 92/92 |
+| YouTube | **21.20.405** | 28 | 96/96 |
 | YouTube Music | **9.20.53** | 26 | 47/47 |
 | Reddit | **2026.24.0** | 29 | 18/18 |
 
@@ -48,4 +48,4 @@ or when a dated-format APK is still missing. Changing the date alone does not tr
 - 🟢 **Stable** — recommended target.
 - 🧪 **Experimental** — supported upstream, but not the recommended stable target.
 
-[Morphe patches release](https://github.com/MorpheApp/morphe-patches/releases/tag/v1.46.0) · [GitHub Releases](../../releases)
+[Morphe patches release](https://github.com/MorpheApp/morphe-patches/releases/tag/v1.47.0) · [GitHub Releases](../../releases)
