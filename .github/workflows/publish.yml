@@ -58,7 +58,7 @@ jobs:
           mapfile -t infos < <(find artifacts -type f -name build-info.env -print | sort)
           if (( ${#infos[@]} == 0 )); then
             if [[ "$SOURCE_EVENT" == "schedule" ]]; then
-              reason="Không có cập nhật Stable mới — cả ba APK đã tồn tại, không tạo release."
+              reason="Không có cập nhật Stable mới — cả hai APK đã tồn tại, không tạo release."
               echo "::notice title=No new Stable release::$reason"
             elif [[ "$SOURCE_EVENT" == "push" ]]; then
               reason="Chỉ kiểm tra mã nguồn (push), không có yêu cầu build APK."
@@ -110,22 +110,22 @@ jobs:
           done
 
           # One release PER Morphe patches version:
-          # - New patch tag: create a brand-new COMPLETE three-app bundle.
+          # - New patch tag: create a brand-new COMPLETE two-app bundle.
           # - Existing patch tag: replace only APKs built in this run.
           # Releases of older Morphe versions remain untouched.
           created_new_release=false
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release $tag exists: update only rebuilt app APK(s)."
           else
-            if (( ${#infos[@]} != 3 )); then
-              echo "::error::Cannot create $tag: new Morphe version requires 3 APKs, found ${#infos[@]}."
+            if (( ${#infos[@]} != 2 )); then
+              echo "::error::Cannot create $tag: new Morphe version requires 2 APKs, found ${#infos[@]}."
               exit 3
             fi
             declare -A seen=()
             for info in "${infos[@]}"; do
               key="$(read_value APP_KEY "$info")"
               case "$key" in
-                youtube|youtube-music|reddit) ;;
+                youtube|youtube-music) ;;
                 *) echo "::error::Invalid app in new release: $key"; exit 3 ;;
               esac
               if [[ -n "${seen[$key]:-}" ]]; then
@@ -134,7 +134,7 @@ jobs:
               fi
               seen[$key]=1
             done
-            for key in youtube youtube-music reddit; do
+            for key in youtube youtube-music; do
               [[ -n "${seen[$key]:-}" ]] || { echo "::error::Missing $key in new Morphe release"; exit 3; }
             done
 
@@ -142,7 +142,7 @@ jobs:
             printf '%s\n' \
               "- Morphe patches: **${MORPHE_PATCHES_TAG}**" \
               "- Morphe Desktop: **${MORPHE_DESKTOP_TAG}**" \
-              "- Bundle: **YouTube + YouTube Music + Reddit (Stable)**" \
+              "- Bundle: **YouTube + YouTube Music (Stable)**" \
               > "$notes"
             gh release create "$tag" "${all_apks[@]}" \
               --repo "$GITHUB_REPOSITORY" \
@@ -150,7 +150,7 @@ jobs:
               --title "$title" \
               --notes-file "$notes"
             created_new_release=true
-            echo "Created complete new release $tag with all three Stable APKs."
+            echo "Created complete new release $tag with both Stable APKs."
           fi
 
           # Do not reupload after creation; for a pre-existing release replace
@@ -170,7 +170,6 @@ jobs:
             case "$APP_KEY" in
               youtube) prefix="Youtube-" ;;
               youtube-music) prefix="YoutubeMusic-" ;;
-              reddit) prefix="Reddit-" ;;
               *)
                 echo "::error::Unknown APP_KEY: $APP_KEY"
                 exit 2
@@ -197,7 +196,7 @@ jobs:
           {
             echo "- Morphe patches: **${MORPHE_PATCHES_TAG}**"
             echo "- Morphe Desktop: **${MORPHE_DESKTOP_TAG}**"
-            echo "- Bundle: **YouTube + YouTube Music + Reddit**"
+            echo "- Bundle: **YouTube + YouTube Music**"
             echo
             echo "### APKs"
             gh release view "$tag" --repo "$GITHUB_REPOSITORY" \
@@ -220,4 +219,42 @@ jobs:
             echo "### APK hiện có trong release"
             gh release view "$tag" --repo "$GITHUB_REPOSITORY" \
               --json assets --jq '.assets[].name' | sort | sed 's/^/- `/; s/$/`/'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  cleanup-reddit:
+    name: Remove legacy Reddit APKs from Releases
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == github.event.repository.default_branch }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove Reddit assets and references from Morphe releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mapfile -t tags < <(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '.[] | select(.tag_name | startswith("morphe-")) | .tag_name')
+          removed=0
+          for tag in "${tags[@]}"; do
+            mapfile -t old < <(gh release view "$tag" --repo "$GITHUB_REPOSITORY" \
+              --json assets --jq '.assets[].name | select(startswith("Reddit-") and endswith(".apk"))')
+            if (( ${#old[@]} == 0 )); then
+              continue
+            fi
+            for asset in "${old[@]}"; do
+              gh release delete-asset "$tag" "$asset" --repo "$GITHUB_REPOSITORY" --yes
+              removed=$((removed + 1))
+            done
+            notes="$(mktemp)"
+            gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json body --jq '.body' |
+              sed -e '/Reddit-.*\.apk/d' -e 's/ + Reddit//g' > "$notes"
+            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes-file "$notes"
+            rm -f "$notes"
+            echo "Removed ${#old[@]} old Reddit APK(s) from $tag."
+          done
+          {
+            echo "## Removed Reddit APKs"
+            echo
+            echo "- Morphe releases scanned: ${#tags[@]}"
+            echo "- Reddit APKs deleted: $removed"
           } >> "$GITHUB_STEP_SUMMARY"

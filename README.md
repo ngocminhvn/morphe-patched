@@ -1,6 +1,6 @@
 # Morphe Patched
 
-CorePatch-oriented Morphe builder for **YouTube**, **YouTube Music**, and **Reddit**.
+CorePatch-oriented Morphe builder for **YouTube**, **YouTube Music**.
 
 ## Current stable targets
 
@@ -10,7 +10,6 @@ CorePatch-oriented Morphe builder for **YouTube**, **YouTube Music**, and **Redd
 |---|---:|---:|---:|
 | YouTube | **21.20.405** | 28 | 96/96 |
 | YouTube Music | **9.20.53** | 26 | 47/47 |
-| Reddit | **2026.24.0** | 29 | 18/18 |
 
 See **[SUPPORTED.md](SUPPORTED.md)** for the complete stable + experimental compatibility matrix.
 
@@ -28,14 +27,13 @@ For YouTube and YouTube Music, this keeps the stock Google Play Services sign-in
 
 ## Release output
 
-Each Morphe patches version has **one combined GitHub Release** (three APKs: YouTube, YouTube Music and Reddit).
-When Morphe patches releases a new version, the workflow builds all three Stable APKs and creates a new Release. Later Stable app updates replace only that app's APK within the matching Morphe Release; older releases are preserved.
+Each Morphe patches version has **one combined GitHub Release** (two APKs: YouTube and YouTube Music).
+When Morphe patches releases a new version, the workflow builds both Stable APKs and creates a new Release. Later Stable app updates replace only that app's APK within the matching Morphe Release; older releases are preserved.
 
 APK filenames use Vietnam build date in `DDMMYY` format, with no `NeedCorePatch` suffix:
 
 - `Youtube-<version>-morphe-<patch>-DDMMYY.apk`
 - `YoutubeMusic-<version>-morphe-<patch>-DDMMYY.apk`
-- `Reddit-<version>-morphe-<patch>-DDMMYY.apk`
 
 For example: `Youtube-21.16.256-morphe-1.46.0-091026.apk`.
 

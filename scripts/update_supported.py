@@ -20,10 +20,6 @@ APPS = {
         "name": "YouTube Music",
         "package": "com.google.android.apps.youtube.music",
     },
-    "reddit": {
-        "name": "Reddit",
-        "package": "com.reddit.frontpage",
-    },
 }
 
 

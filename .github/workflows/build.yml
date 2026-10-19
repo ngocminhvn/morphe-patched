@@ -24,7 +24,6 @@ on:
         options:
           - youtube
           - youtube-music
-          - reddit
       source_url:
         description: Direct APK/APKM link or supported APKMirror release/variant/download page
         required: true
@@ -64,7 +63,6 @@ jobs:
           grep -F '"Custom branding"' scripts/build.sh
           grep -F '"App icon"' scripts/build.sh
           grep -F '"youtube-music"' scripts/update_supported.py
-          grep -F '"reddit"' scripts/update_supported.py
 
       - name: Validate latest Morphe release assets
         shell: bash
@@ -102,7 +100,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          for app in youtube youtube-music reddit; do
+          for app in youtube youtube-music; do
             python3 scripts/update_supported.py \
               --app "$app" \
               --output "/tmp/$app.md" \
@@ -154,7 +152,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: ${{ fromJSON(github.event_name == 'schedule' && '["youtube","youtube-music","reddit"]' || github.event_name == 'push' && '["youtube-music"]' || format('["{0}"]', inputs.app)) }}
+        app: ${{ fromJSON(github.event_name == 'schedule' && '["youtube","youtube-music"]' || github.event_name == 'push' && '["youtube-music"]' || format('["{0}"]', inputs.app)) }}
 
     steps:
       - uses: actions/checkout@v4
@@ -200,9 +198,6 @@ jobs:
                 source_url="https://www.apkmirror.com/apk/google-inc/youtube-music/youtube-music-${version_slug}-release/"
               fi
               ;;
-            reddit)
-              source_url="https://www.apkmirror.com/apk/redditinc/reddit/reddit-${version_slug}-release/"
-              ;;
             *)
               echo "Unsupported APP: $APP" >&2
               exit 2
@@ -215,7 +210,6 @@ jobs:
           case "$APP" in
             youtube) expected_asset="Youtube-${version}-morphe-${patch_version}-${build_date}.apk" ;;
             youtube-music) expected_asset="YoutubeMusic-${version}-morphe-${patch_version}-${build_date}.apk" ;;
-            reddit) expected_asset="Reddit-${version}-morphe-${patch_version}-${build_date}.apk" ;;
           esac
 
           echo "target_version=$version" >> "$GITHUB_OUTPUT"
@@ -232,7 +226,7 @@ jobs:
           fi
 
           # One combined release per Morphe patch version. A brand-new Morphe
-          # version has no release yet, so all three Stable apps must be built.
+          # version has no release yet, so both Stable apps must be built.
           # Existing patch versions update only their missing/outdated APK.
           http_code="$(curl -sS --retry 3 -o "/tmp/$APP-release.json" -w '%{http_code}' \
             -H "Authorization: Bearer $GH_TOKEN" \
@@ -276,7 +270,7 @@ jobs:
             echo "should_build=true" >> "$GITHUB_OUTPUT"
             echo "reason=missing-bundle-asset" >> "$GITHUB_OUTPUT"
             echo "Current Stable APK missing: $expected_asset"
-            echo "Publish destination: $tag (create only if new Morphe version and 3 APKs built)"
+            echo "Publish destination: $tag (create only if new Morphe version and 2 APKs built)"
             echo "Source: $source_url"
           fi
 
@@ -390,7 +384,7 @@ jobs:
           if-no-files-found: ignore
 
   stable-update-report:
-    name: Stable check summary (3 apps)
+    name: Stable check summary (2 apps)
     needs: build
     if: ${{ always() && github.event_name == 'schedule' }}
     runs-on: ubuntu-latest

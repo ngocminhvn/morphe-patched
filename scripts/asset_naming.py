@@ -14,7 +14,6 @@ import sys
 PREFIXES = {
     "youtube": "Youtube",
     "youtube-music": "YoutubeMusic",
-    "reddit": "Reddit",
 }
 
 

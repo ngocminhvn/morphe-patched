@@ -26,12 +26,6 @@ case "$APP" in
     OUTPUT_NAME="YoutubeMusic"
     PACKAGE_NAME="com.google.android.apps.youtube.music"
     ;;
-  reddit)
-    APP_NAME="Reddit"
-    APP_SLUG="reddit"
-    OUTPUT_NAME="Reddit"
-    PACKAGE_NAME="com.reddit.frontpage"
-    ;;
   *)
     echo "Unsupported APP: $APP" >&2
     exit 2

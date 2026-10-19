@@ -18,16 +18,11 @@ META = {
             {"version": "9.40.51", "experimental": True},
             {"version": "9.20.53", "experimental": False},
         ]},
-        "reddit": {"versions": [
-            {"version": "2026.40.0", "experimental": True},
-            {"version": "2026.24.0", "experimental": False},
-        ]},
     },
 }
 ASSETS = [
     "Youtube-21.16.256-morphe-1.46.0-091026.apk",
     "YoutubeMusic-9.20.53-morphe-1.46.0-091026.apk",
-    "Reddit-2026.24.0-morphe-1.46.0-091026.apk",
 ]
 
 
@@ -50,20 +45,20 @@ class StableReportTest(unittest.TestCase):
         legacy = [name.replace("091026", "NeedCorePatch") for name in ASSETS]
         status, report = evaluate(META, legacy, "success")
         self.assertEqual(status, "pending-publish")
-        self.assertIn("3 APK Stable", report)
+        self.assertIn("2 APK Stable", report)
 
-    def test_new_morphe_version_needs_new_three_app_release(self):
+    def test_new_morphe_version_needs_two_app_release(self):
         # Even unchanged Stable app versions must be rebuilt for a new
         # Morphe patch release. Previous versions' APKs do not count.
         data = {**META, "patchesTag": "v1.47.0"}
         status, report = evaluate(data, ASSETS, "success")
         self.assertEqual(status, "pending-publish")
-        self.assertIn("3 APK Stable", report)
+        self.assertIn("2 APK Stable", report)
         self.assertIn("morphe-1.47.0", report)
 
     def test_existing_version_updates_only_missing_app(self):
         # An updated YouTube stable target does not require rebuilding the
-        # current YoutubeMusic / Reddit assets.
+        # current YouTube Music asset.
         data = {
             **META,
             "apps": {
@@ -104,7 +99,7 @@ class StableReportTest(unittest.TestCase):
         stale = [name.replace("1.46.0", "1.45.0") for name in ASSETS]
         status, report = evaluate(META, stale, "success")
         self.assertEqual(status, "pending-publish")
-        self.assertIn("3 APK Stable", report)
+        self.assertIn("2 APK Stable", report)
 
 
 if __name__ == "__main__":

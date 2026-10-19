@@ -18,7 +18,7 @@ def build_readme(data: dict) -> str:
     apps = data.get("apps") or {}
 
     rows = []
-    for key in ("youtube", "youtube-music", "reddit"):
+    for key in ("youtube", "youtube-music"):
         app = apps.get(key) or {}
         target = stable_target(app)
         if not target:
@@ -32,7 +32,7 @@ def build_readme(data: dict) -> str:
     lines = [
         "# Morphe Patched",
         "",
-        "CorePatch-oriented Morphe builder for **YouTube**, **YouTube Music**, and **Reddit**.",
+        "CorePatch-oriented Morphe builder for **YouTube**, **YouTube Music**.",
         "",
         "## Current stable targets",
         "",
@@ -58,14 +58,13 @@ def build_readme(data: dict) -> str:
         "",
         "## Release output",
         "",
-        "Each Morphe patches version has **one combined GitHub Release** (three APKs: YouTube, YouTube Music and Reddit).",
-        "When Morphe patches releases a new version, the workflow builds all three Stable APKs and creates a new Release. Later Stable app updates replace only that app's APK within the matching Morphe Release; older releases are preserved.",
+        "Each Morphe patches version has **one combined GitHub Release** (two APKs: YouTube and YouTube Music).",
+        "When Morphe patches releases a new version, the workflow builds both Stable APKs and creates a new Release. Later Stable app updates replace only that app's APK within the matching Morphe Release; older releases are preserved.",
         "",
         "APK filenames use Vietnam build date in `DDMMYY` format, with no `NeedCorePatch` suffix:",
         "",
         "- `Youtube-<version>-morphe-<patch>-DDMMYY.apk`",
         "- `YoutubeMusic-<version>-morphe-<patch>-DDMMYY.apk`",
-        "- `Reddit-<version>-morphe-<patch>-DDMMYY.apk`",
         "",
         "For example: `Youtube-21.16.256-morphe-1.46.0-091026.apk`.",
         "",

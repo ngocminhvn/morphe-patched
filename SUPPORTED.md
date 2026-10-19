@@ -37,21 +37,6 @@ This file is generated automatically from Morphe's latest `patches-list.json`.
 | `9.20.53` | 🟢 Stable | 26 | 47/47 |
 | `9.15.51` | 🟢 Stable | 26 | 47/47 |
 
-## Reddit
-
-- Latest stable/recommended target: **2026.24.0**
-- Stable targets: **3**
-- Experimental targets: **3**
-
-| Reddit | Status | minSdk | Default patches supporting target |
-|---|---|---:|---:|
-| `2026.41.0` | 🧪 Experimental | 29 | 18/18 |
-| `2026.40.0` | 🧪 Experimental | 29 | 18/18 |
-| `2026.39.0` | 🧪 Experimental | 29 | 18/18 |
-| `2026.24.0` | 🟢 Stable | 29 | 18/18 |
-| `2026.10.0` | 🟢 Stable | 28 | 18/18 |
-| `2024.02.0` | 🟢 Stable | 28 | 1/18 |
-
 > Experimental means Morphe supports patching the version but upstream does not consider it the recommended stable target yet.
 
 [Morphe patches release](https://github.com/MorpheApp/morphe-patches/releases/tag/v1.47.0)

@@ -17,7 +17,6 @@ from asset_naming import current_asset
 APPS = (
     ("youtube", "YouTube", "Youtube"),
     ("youtube-music", "YouTube Music", "YoutubeMusic"),
-    ("reddit", "Reddit", "Reddit"),
 )
 
 
@@ -84,7 +83,7 @@ def evaluate(metadata: dict, assets: list[str], build_result: str, release_tag: 
             "",
             "**Lưu ý:** Chỉ theo dõi phiên bản Stable do Morphe đề xuất. "
             "Bản Experimental không kích hoạt auto-build. "
-            "Chỉ tạo Release mới khi Morphe có phiên bản patch mới và đủ ba APK Stable.",
+            "Chỉ tạo Release mới khi Morphe có phiên bản patch mới và đủ hai APK Stable.",
             "",
         ]
     )
@@ -111,7 +110,7 @@ def main() -> int:
 
     print(report)
     if status == "no-update":
-        print("::notice title=Stable update check::No new Stable versions; all three APKs are already published.")
+        print("::notice title=Stable update check::No new Stable versions; both APKs are already published.")
     elif status == "check-failed":
         print("::warning title=Stable update check::Build or publication check needs attention.")
     else:
