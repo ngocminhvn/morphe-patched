@@ -50,13 +50,14 @@ jobs:
         run: |
           set -euo pipefail
           bash -n scripts/build.sh
+          python3 -m py_compile scripts/verify_native_libs.py
           python3 -m py_compile scripts/apk_sigblock.py
           python3 -m py_compile scripts/fetch_source.py
           python3 -m py_compile scripts/update_supported.py
           python3 -m py_compile scripts/update_readme.py
           python3 -m py_compile scripts/report_stable_updates.py
           python3 -m py_compile scripts/asset_naming.py
-          python3 -m unittest discover -s tests -p 'test_report_stable_updates.py'
+          python3 -m unittest discover -s tests -p 'test_*.py'
           grep -F '"GmsCore support"' scripts/build.sh
           grep -F '"Clone app"' scripts/build.sh
           grep -F '"Spoof signature"' scripts/build.sh
@@ -146,14 +147,14 @@ jobs:
 
   build:
     name: Patch ${{ matrix.app }}
-    if: ${{ always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && (needs.validate.result == 'success' || needs.validate.result == 'skipped') }}
+    if: ${{ always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[ytm-native-rebuild]'))) && (needs.validate.result == 'success' || needs.validate.result == 'skipped') }}
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        app: ${{ fromJSON(github.event_name == 'schedule' && '["youtube","youtube-music","reddit"]' || format('["{0}"]', inputs.app)) }}
+        app: ${{ fromJSON(github.event_name == 'schedule' && '["youtube","youtube-music","reddit"]' || github.event_name == 'push' && '["youtube-music"]' || format('["{0}"]', inputs.app)) }}
 
     steps:
       - uses: actions/checkout@v4
@@ -192,7 +193,12 @@ jobs:
               source_url="https://www.apkmirror.com/apk/google-inc/youtube/youtube-${version_slug}-release/"
               ;;
             youtube-music)
-              source_url="https://www.apkmirror.com/apk/google-inc/youtube-music/youtube-music-${version_slug}-release/"
+              if [[ "$version" == "9.20.53" ]]; then
+                # Standalone arm64-v8a APK; the BUNDLE source lost native libs.
+                source_url="https://www.apkmirror.com/apk/google-inc/youtube-music/youtube-music-9-20-53-release/youtube-music-9-20-53-4-android-apk-download/"
+              else
+                source_url="https://www.apkmirror.com/apk/google-inc/youtube-music/youtube-music-${version_slug}-release/"
+              fi
               ;;
             reddit)
               source_url="https://www.apkmirror.com/apk/redditinc/reddit/reddit-${version_slug}-release/"
@@ -218,6 +224,13 @@ jobs:
           echo "expected_asset=$expected_asset" >> "$GITHUB_OUTPUT"
           echo "source_url=$source_url" >> "$GITHUB_OUTPUT"
 
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            echo "reason=native-libs-rebuild" >> "$GITHUB_OUTPUT"
+            echo "Rebuilding YouTube Music after fixing native library preservation."
+            exit 0
+          fi
+
           # One combined release per Morphe patch version. A brand-new Morphe
           # version has no release yet, so all three Stable apps must be built.
           # Existing patch versions update only their missing/outdated APK.
@@ -242,8 +255,22 @@ jobs:
           if python3 scripts/asset_naming.py \
             --app "$APP" --version "$version" --patches-version "$patch_version" \
             --assets-file "/tmp/$APP-release-assets.json"; then
+            if [[ "$APP" == "youtube-music" ]]; then
+              # A matching filename is not proof of a runnable APK.
+              url="$(jq -r --arg prefix "YoutubeMusic-${version}-morphe-${patch_version}-" '
+                [.assets[]? | select(.name | startswith($prefix) and endswith(".apk")) | .browser_download_url][0] // empty
+              ' "/tmp/$APP-release.json")"
+              test -n "$url"
+              curl -fL --retry 3 --retry-delay 2 -o /tmp/ytmusic-published.apk "$url"
+              if ! python3 scripts/verify_native_libs.py /tmp/ytmusic-published.apk; then
+                echo "should_build=true" >> "$GITHUB_OUTPUT"
+                echo "reason=published-apk-missing-native-libs" >> "$GITHUB_OUTPUT"
+                echo "::warning::YouTube Music release APK lacks libelements.so; rebuilding."
+                exit 0
+              fi
+            fi
             echo "should_build=false" >> "$GITHUB_OUTPUT"
-            echo "reason=asset-exists" >> "$GITHUB_OUTPUT"
+            echo "reason=asset-exists-verified" >> "$GITHUB_OUTPUT"
             echo "Stable $APP $version / Morphe $patch_version already exists in $tag; skipping."
           else
             echo "should_build=true" >> "$GITHUB_OUTPUT"

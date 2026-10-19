@@ -55,6 +55,10 @@ done
 SOURCE_FILE="$(realpath "$SOURCE_FILE")"
 [[ -f "$SOURCE_FILE" ]] || { echo "Source not found: $SOURCE_FILE" >&2; exit 2; }
 
+if [[ "$APP" == "youtube-music" ]]; then
+  python3 "$ROOT_DIR/scripts/verify_native_libs.py" "$SOURCE_FILE"
+fi
+
 rm -rf "$WORK_DIR" "$DIST_DIR"
 mkdir -p "$WORK_DIR/tools" "$WORK_DIR/tmp" "$DIST_DIR"
 
@@ -165,6 +169,10 @@ printf '\n'
 
 [[ -s "$TEMP_OUTPUT" ]] || { echo "No output APK produced" >&2; exit 4; }
 [[ -s "$REPORT" ]] || { echo "No Morphe report produced" >&2; exit 4; }
+
+if [[ "$APP" == "youtube-music" ]]; then
+  python3 "$ROOT_DIR/scripts/verify_native_libs.py" "$TEMP_OUTPUT" --baseline "$SOURCE_FILE"
+fi
 
 jq -e --arg pkg "$PACKAGE_NAME" '
   .packageName == $pkg
