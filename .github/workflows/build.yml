@@ -1,10 +1,9 @@
 name: Morphe Multi-App Builder
-run-name: ${{ github.event_name == 'workflow_dispatch' && format('Build {0} from URL', inputs.app) || github.event_name == 'schedule' && 'Sync + auto-build stable apps' || 'Validate builder' }}
+run-name: ${{ github.event_name == 'schedule' && 'Daily Morphe Stable check' || github.event_name == 'workflow_dispatch' && 'Manual Stable check' || 'Validate Morphe builder' }}
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
     paths:
       - '.github/workflows/build.yml'
       - 'scripts/**'
@@ -13,267 +12,112 @@ on:
       - 'README.md'
       - 'SUPPORTED.md'
   schedule:
-    - cron: '23 */6 * * *'
+    # 09:13 GMT+7 = 02:13 UTC, once daily.
+    - cron: '13 2 * * *'
   workflow_dispatch:
-    inputs:
-      app:
-        description: App to patch
-        required: true
-        default: youtube
-        type: choice
-        options:
-          - youtube
-          - youtube-music
-      source_url:
-        description: Direct APK/APKM link or supported APKMirror release/variant/download page
-        required: true
-        type: string
 
 permissions:
   contents: write
 
 concurrency:
-  group: morphe-${{ github.ref }}-${{ github.event_name }}
+  group: morphe-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   validate:
-    name: Validate repository
-    if: github.event_name != 'schedule'
+    name: Validate builder scripts
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Validate scripts
-        shell: bash
+      - name: Syntax and regression tests
         run: |
           set -euo pipefail
-          bash -n scripts/build.sh
-          python3 -m py_compile scripts/verify_native_libs.py
-          python3 -m py_compile scripts/apk_sigblock.py
-          python3 -m py_compile scripts/fetch_source.py
-          python3 -m py_compile scripts/update_supported.py
-          python3 -m py_compile scripts/update_readme.py
-          python3 -m py_compile scripts/report_stable_updates.py
-          python3 -m py_compile scripts/asset_naming.py
+          bash -n scripts/build.sh scripts/publish_release.sh
+          python3 -m compileall -q scripts
           python3 -m unittest discover -s tests -p 'test_*.py'
-          grep -F '"GmsCore support"' scripts/build.sh
-          grep -F '"Clone app"' scripts/build.sh
-          grep -F '"Spoof signature"' scripts/build.sh
-          grep -F '"Custom branding"' scripts/build.sh
-          grep -F '"App icon"' scripts/build.sh
-          grep -F '"youtube-music"' scripts/update_supported.py
 
-      - name: Validate latest Morphe release assets
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-
-          api() {
-            curl -fsSL \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H "Accept: application/vnd.github+json" \
-              "$1"
-          }
-
-          desktop_json="$(api https://api.github.com/repos/MorpheApp/morphe-desktop/releases/latest)"
-          patches_json="$(api https://api.github.com/repos/MorpheApp/morphe-patches/releases/latest)"
-
-          desktop_tag="$(jq -r '.tag_name // empty' <<< "$desktop_json")"
-          desktop_asset="$(jq -r '[.assets[]? | select(.name | endswith("-all.jar")) | .name][0] // empty' <<< "$desktop_json")"
-          patches_tag="$(jq -r '.tag_name // empty' <<< "$patches_json")"
-          patches_asset="$(jq -r '[.assets[]? | select(.name | endswith(".mpp")) | .name][0] // empty' <<< "$patches_json")"
-
-          test -n "$desktop_tag"
-          test -n "$desktop_asset"
-          test -n "$patches_tag"
-          test -n "$patches_asset"
-
-          echo "Morphe Desktop: $desktop_tag / $desktop_asset"
-          echo "Morphe patches: $patches_tag / $patches_asset"
-
-      - name: Validate support metadata for all apps
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          for app in youtube youtube-music; do
-            python3 scripts/update_supported.py \
-              --app "$app" \
-              --output "/tmp/$app.md" \
-              --json-output "/tmp/$app.json"
-            jq -e '.versions | length > 0' "/tmp/$app.json" >/dev/null
-          done
-
-  sync-supported:
-    name: Sync supported versions
-    if: github.event_name == 'schedule' || github.event_name == 'push'
+  check:
+    name: Compare Morphe Stable versions with published APKs
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.plan.outputs.should_build }}
+      mode: ${{ steps.plan.outputs.mode }}
+      apps: ${{ steps.plan.outputs.apps }}
+      targets: ${{ steps.plan.outputs.targets }}
+      patches_tag: ${{ steps.plan.outputs.patches_tag }}
+      release_tag: ${{ steps.plan.outputs.release_tag }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Generate support docs from latest Morphe release
+      - name: Compare upstream Stable support and release assets
+        id: plan
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
           set -euo pipefail
           python3 scripts/update_supported.py \
-            --output SUPPORTED.md \
-            --json-output /tmp/support.json
-          python3 scripts/update_readme.py \
-            --json /tmp/support.json \
-            --output README.md
-
-      - name: Commit changes
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if git diff --quiet -- SUPPORTED.md README.md; then
-            echo "Support docs are already current."
-            exit 0
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add SUPPORTED.md README.md
-          git commit -m "docs: sync Morphe support docs"
-          git push
+            --output /tmp/supported.md \
+            --json-output /tmp/supported.json
+          patches_tag="$(jq -er '.patchesTag' /tmp/supported.json)"
+          release_tag="morphe-${patches_tag#v}"
+          http_code="$(curl -sS --retry 3 -o /tmp/release.json -w '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$release_tag")"
+          case "$http_code" in
+            200) ;;
+            404) echo '{}' > /tmp/release.json ;;
+            *)
+              echo "::error::Release lookup failed (HTTP $http_code). Refusing to build."
+              exit 1
+              ;;
+          esac
+          python3 scripts/plan_updates.py \
+            --metadata /tmp/supported.json --release /tmp/release.json \
+            --output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
 
   build:
     name: Patch ${{ matrix.app }}
-    if: ${{ always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[ytm-native-rebuild]'))) && (needs.validate.result == 'success' || needs.validate.result == 'skipped') }}
-    needs: validate
+    needs: check
+    if: needs.check.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        app: ${{ fromJSON(github.event_name == 'schedule' && '["youtube","youtube-music"]' || github.event_name == 'push' && '["youtube-music"]' || format('["{0}"]', inputs.app)) }}
-
+        app: ${{ fromJSON(needs.check.outputs.apps) }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Resolve build target
+      - name: Resolve pinned Stable target
         id: plan
         shell: bash
         env:
           APP: ${{ matrix.app }}
-          EVENT_NAME: ${{ github.event_name }}
-          MANUAL_SOURCE_URL: ${{ inputs.source_url }}
-          GH_TOKEN: ${{ github.token }}
+          TARGETS_JSON: ${{ needs.check.outputs.targets }}
+          PATCHES_TAG: ${{ needs.check.outputs.patches_tag }}
         run: |
           set -euo pipefail
-          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            test -n "$MANUAL_SOURCE_URL"
-            echo "should_build=true" >> "$GITHUB_OUTPUT"
-            echo "source_url=$MANUAL_SOURCE_URL" >> "$GITHUB_OUTPUT"
-            echo "reason=manual" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          python3 scripts/update_supported.py \
-            --app "$APP" \
-            --output "/tmp/$APP-supported.md" \
-            --json-output "/tmp/$APP-support.json"
-
-          version="$(jq -r '[.versions[] | select(.experimental == false)][0].version // empty' "/tmp/$APP-support.json")"
-          patches_tag="$(jq -r '.patchesTag // empty' "/tmp/$APP-support.json")"
-          test -n "$version"
-          test -n "$patches_tag"
-
-          version_slug="${version//./-}"
+          version="$(jq -er --arg app "$APP" '.[$app]' <<< "$TARGETS_JSON")"
+          slug="${version//./-}"
           case "$APP" in
             youtube)
-              source_url="https://www.apkmirror.com/apk/google-inc/youtube/youtube-${version_slug}-release/"
+              url="https://www.apkmirror.com/apk/google-inc/youtube/youtube-${slug}-release/"
               ;;
             youtube-music)
               if [[ "$version" == "9.20.53" ]]; then
-                # Standalone arm64-v8a APK; the BUNDLE source lost native libs.
-                source_url="https://www.apkmirror.com/apk/google-inc/youtube-music/youtube-music-9-20-53-release/youtube-music-9-20-53-4-android-apk-download/"
+                url="https://www.apkmirror.com/apk/google-inc/youtube-music/youtube-music-9-20-53-release/youtube-music-9-20-53-4-android-apk-download/"
               else
-                source_url="https://www.apkmirror.com/apk/google-inc/youtube-music/youtube-music-${version_slug}-release/"
+                url="https://www.apkmirror.com/apk/google-inc/youtube-music/youtube-music-${slug}-release/"
               fi
               ;;
-            *)
-              echo "Unsupported APP: $APP" >&2
-              exit 2
-              ;;
+            *) echo "::error::Unsupported $APP"; exit 2 ;;
           esac
-
-          patch_version="${patches_tag#v}"
-          tag="morphe-${patch_version}"
-          build_date="$(TZ=Asia/Ho_Chi_Minh date +%d%m%y)"
-          case "$APP" in
-            youtube) expected_asset="Youtube-${version}-morphe-${patch_version}-${build_date}.apk" ;;
-            youtube-music) expected_asset="YoutubeMusic-${version}-morphe-${patch_version}-${build_date}.apk" ;;
-          esac
-
+          echo "should_build=true" >> "$GITHUB_OUTPUT"
+          echo "source_url=$url" >> "$GITHUB_OUTPUT"
           echo "target_version=$version" >> "$GITHUB_OUTPUT"
-          echo "patches_tag=$patches_tag" >> "$GITHUB_OUTPUT"
-          echo "release_tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "expected_asset=$expected_asset" >> "$GITHUB_OUTPUT"
-          echo "source_url=$source_url" >> "$GITHUB_OUTPUT"
-
-          if [[ "$EVENT_NAME" == "push" ]]; then
-            echo "should_build=true" >> "$GITHUB_OUTPUT"
-            echo "reason=native-libs-rebuild" >> "$GITHUB_OUTPUT"
-            echo "Rebuilding YouTube Music after fixing native library preservation."
-            exit 0
-          fi
-
-          # One combined release per Morphe patch version. A brand-new Morphe
-          # version has no release yet, so both Stable apps must be built.
-          # Existing patch versions update only their missing/outdated APK.
-          http_code="$(curl -sS --retry 3 -o "/tmp/$APP-release.json" -w '%{http_code}' \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H 'Accept: application/vnd.github+json' \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$tag")"
-          case "$http_code" in
-            200) jq -e '[.assets[].name]' "/tmp/$APP-release.json" > "/tmp/$APP-release-assets.json" ;;
-            404)
-              echo "New Morphe patch version: release $tag does not exist yet."
-              printf '[]\n' > "/tmp/$APP-release-assets.json"
-              ;;
-            *)
-              echo "::error::Could not inspect release $tag (HTTP $http_code)"
-              exit 2
-              ;;
-          esac
-
-          # Build date is NOT an update trigger: accept any DDMMYY suffix,
-          # but reject old NeedCorePatch names so they migrate once.
-          if python3 scripts/asset_naming.py \
-            --app "$APP" --version "$version" --patches-version "$patch_version" \
-            --assets-file "/tmp/$APP-release-assets.json"; then
-            if [[ "$APP" == "youtube-music" ]]; then
-              # A matching filename is not proof of a runnable APK.
-              url="$(jq -r --arg prefix "YoutubeMusic-${version}-morphe-${patch_version}-" '
-                [.assets[]? | select(.name | startswith($prefix) and endswith(".apk")) | .browser_download_url][0] // empty
-              ' "/tmp/$APP-release.json")"
-              test -n "$url"
-              curl -fL --retry 3 --retry-delay 2 -o /tmp/ytmusic-published.apk "$url"
-              if ! python3 scripts/verify_native_libs.py /tmp/ytmusic-published.apk; then
-                echo "should_build=true" >> "$GITHUB_OUTPUT"
-                echo "reason=published-apk-missing-native-libs" >> "$GITHUB_OUTPUT"
-                echo "::warning::YouTube Music release APK lacks libelements.so; rebuilding."
-                exit 0
-              fi
-            fi
-            echo "should_build=false" >> "$GITHUB_OUTPUT"
-            echo "reason=asset-exists-verified" >> "$GITHUB_OUTPUT"
-            echo "Stable $APP $version / Morphe $patch_version already exists in $tag; skipping."
-          else
-            echo "should_build=true" >> "$GITHUB_OUTPUT"
-            echo "reason=missing-bundle-asset" >> "$GITHUB_OUTPUT"
-            echo "Current Stable APK missing: $expected_asset"
-            echo "Publish destination: $tag (create only if new Morphe version and 2 APKs built)"
-            echo "Source: $source_url"
-          fi
-
+          echo "patches_tag=$PATCHES_TAG" >> "$GITHUB_OUTPUT"
       - name: Setup Java 21
         if: steps.plan.outputs.should_build == 'true'
         uses: actions/setup-java@v5
@@ -306,6 +150,8 @@ jobs:
           APP: ${{ matrix.app }}
           SOURCE_FILE: ${{ steps.source.outputs.SOURCE_FILE }}
           JAVA_XMX: 6g
+          EXPECTED_PATCHES_TAG: ${{ needs.check.outputs.patches_tag }}
+          EXPECTED_APP_VERSION: ${{ steps.plan.outputs.target_version }}
         run: bash scripts/build.sh
 
       - name: Read build metadata
@@ -351,7 +197,7 @@ jobs:
             else
               echo '❌ Build failed before a verified APK was produced.'
               echo
-              echo 'Scheduled builds will retry automatically on the next 6-hour check.'
+              echo 'Scheduled builds will retry on the next daily check.'
               echo 'Check SUPPORTED.md and APKMirror availability for the selected stable target.'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
@@ -383,54 +229,23 @@ jobs:
           retention-days: 3
           if-no-files-found: ignore
 
-  stable-update-report:
-    name: Stable check summary (2 apps)
-    needs: build
-    if: ${{ always() && github.event_name == 'schedule' }}
+  publish:
+    name: Publish changed Stable APKs only
+    needs: [check, build]
+    if: needs.check.outputs.should_build == 'true' && needs.build.result == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-
-      - name: Compare recommended Stable APKs against published release
-        shell: bash
+      - name: Download APK artifacts from this run
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Verify artifacts and publish
         env:
           GH_TOKEN: ${{ github.token }}
-          BUILD_RESULT: ${{ needs.build.result }}
-        run: |
-          set -euo pipefail
-          python3 scripts/update_supported.py \
-            --output /tmp/auto-supported.md \
-            --json-output /tmp/auto-supported.json
-
-          upstream_tag="$(jq -er '.patchesTag' /tmp/auto-supported.json)"
-          test -n "$upstream_tag"
-          release_tag="morphe-${upstream_tag#v}"
-
-          # Distinguish a genuinely missing release (404) from GitHub API
-          # failures. A network/auth error must NEVER be shown as "no update".
-          http_code="$(curl -sS --retry 3 \
-            -o /tmp/auto-release.json \
-            -w '%{http_code}' \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H 'Accept: application/vnd.github+json' \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$release_tag")"
-          case "$http_code" in
-            200)
-              jq '[.assets[].name]' /tmp/auto-release.json > /tmp/auto-assets.json
-              ;;
-            404)
-              printf '[]\n' > /tmp/auto-assets.json
-              ;;
-            *)
-              echo "::error::Cannot inspect release $release_tag (HTTP $http_code)"
-              exit 1
-              ;;
-          esac
-
-          python3 scripts/report_stable_updates.py \
-            --metadata /tmp/auto-supported.json \
-            --assets /tmp/auto-assets.json \
-            --build-result "$BUILD_RESULT" \
-            --release-tag "$release_tag" \
-            --summary "$GITHUB_STEP_SUMMARY"
+          RELEASE_MODE: ${{ needs.check.outputs.mode }}
+          EXPECTED_APPS_JSON: ${{ needs.check.outputs.apps }}
+          EXPECTED_TARGETS_JSON: ${{ needs.check.outputs.targets }}
+          EXPECTED_PATCHES_TAG: ${{ needs.check.outputs.patches_tag }}
+          EXPECTED_RELEASE_TAG: ${{ needs.check.outputs.release_tag }}
+        run: bash scripts/publish_release.sh

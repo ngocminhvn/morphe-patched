@@ -107,6 +107,10 @@ DESKTOP_TAG="${desktop_info[0]}"
 DESKTOP_URL="${desktop_info[1]}"
 DESKTOP_DIGEST="${desktop_info[2]:-}"
 PATCHES_TAG="${patches_info[0]}"
+if [[ -n "${EXPECTED_PATCHES_TAG:-}" && "$PATCHES_TAG" != "$EXPECTED_PATCHES_TAG" ]]; then
+  echo "Morphe patch version changed after check: $PATCHES_TAG; expected $EXPECTED_PATCHES_TAG" >&2
+  exit 3
+fi
 PATCHES_URL="${patches_info[1]}"
 PATCHES_DIGEST="${patches_info[2]:-}"
 
@@ -186,6 +190,10 @@ jq -e --arg pkg "$PACKAGE_NAME" '
 }
 
 VERSION="$(jq -r '.packageVersion' "$REPORT")"
+if [[ -n "${EXPECTED_APP_VERSION:-}" && "$VERSION" != "$EXPECTED_APP_VERSION" ]]; then
+  echo "Stable APK version mismatch: $VERSION vs $EXPECTED_APP_VERSION" >&2
+  exit 6
+fi
 SUPPORT_JSON="$(jq -c --arg v "$VERSION" '.versions[] | select(.version == $v)' "$WORK_DIR/support.json" | head -n1)"
 if [[ -z "$SUPPORT_JSON" ]]; then
   echo "$APP_NAME $VERSION is not listed as supported by $PATCHES_TAG" >&2

@@ -37,9 +37,9 @@ APK filenames use Vietnam build date in `DDMMYY` format, with no `NeedCorePatch`
 
 For example: `Youtube-21.16.256-morphe-1.46.0-091026.apk`.
 
-The scheduled workflow checks the latest Morphe Stable/recommended targets every 6 hours.
-It builds a new APK only when the Stable app version or Morphe patch version changes,
-or when a dated-format APK is still missing. Changing the date alone does not trigger a build.
+The workflow checks Morphe's supported Stable targets once per day (09:13 Vietnam time).
+A new Morphe patch version creates a release with both Stable APKs. A newer supported
+Stable app version updates only that app in the current release. Otherwise, it stops after the check.
 
 ## Status legend
 
