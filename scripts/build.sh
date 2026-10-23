@@ -181,18 +181,23 @@ if [[ "$APP" == "youtube-music" ]]; then
   python3 "$ROOT_DIR/scripts/verify_native_libs.py" "$TEMP_OUTPUT" --baseline "$SOURCE_FILE"
 fi
 
+# Morphe v1.48.0 reports appliedPatches as strings and build steps in
+# stepResults (not patchingSteps). Match the actual report schema.
 jq -e --arg pkg "$PACKAGE_NAME" '
-  .packageName == $pkg
+  .success == true
+  and .packageName == $pkg
   and (.failedPatches | length == 0)
-  and (.patchingSteps | length >= 2)
-  and ([.patchingSteps[].success] | all)
-  and ([.patchingSteps[].step] | index("SIGNING") == null)
-  and ([.appliedPatches[].name] | index("GmsCore support") == null)
-  and ([.appliedPatches[].name] | index("Clone app") == null)
-  and ([.appliedPatches[].name] | index("Spoof signature") == null)
-  and ([.appliedPatches[].name] | index("Custom branding") == null)
-  and ([.appliedPatches[].name] | index("App icon") == null)
-  and ([.appliedPatches[].name] | index("Disable Play Store updates") != null)
+  and (.stepResults | length >= 2)
+  and ([.stepResults[].success] | all)
+  and ([.stepResults[].step] | index("PATCHING") != null)
+  and ([.stepResults[].step] | index("REBUILDING") != null)
+  and ([.stepResults[].step] | index("SIGNING") == null)
+  and (.appliedPatches | index("GmsCore support") == null)
+  and (.appliedPatches | index("Clone app") == null)
+  and (.appliedPatches | index("Spoof signature") == null)
+  and (.appliedPatches | index("Custom branding") == null)
+  and (.appliedPatches | index("App icon") == null)
+  and (.appliedPatches | index("Disable Play Store updates") != null)
 ' "$REPORT" >/dev/null || {
   echo "Morphe report validation failed" >&2
   cat "$REPORT" >&2
