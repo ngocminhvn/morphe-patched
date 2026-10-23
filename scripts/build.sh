@@ -42,6 +42,12 @@ PROTECTED_PATCHES=(
   "App icon"
 )
 
+# Explicitly enable the non-default Morphe patch. It sets the APK manifest
+# versionCode to 2147483647 while preserving the original code for app checks.
+REQUIRED_PATCHES=(
+  "Disable Play Store updates"
+)
+
 for cmd in java curl jq python3 sha256sum; do
   command -v "$cmd" >/dev/null || { echo "Missing command: $cmd" >&2; exit 2; }
 done
@@ -157,6 +163,9 @@ ARGS=(
 for patch in "${PROTECTED_PATCHES[@]}"; do
   ARGS+=(-d "$patch")
 done
+for patch in "${REQUIRED_PATCHES[@]}"; do
+  ARGS+=(-e "$patch")
+done
 ARGS+=("$SOURCE_FILE")
 
 printf 'Running:'
@@ -183,6 +192,7 @@ jq -e --arg pkg "$PACKAGE_NAME" '
   and ([.appliedPatches[].name] | index("Spoof signature") == null)
   and ([.appliedPatches[].name] | index("Custom branding") == null)
   and ([.appliedPatches[].name] | index("App icon") == null)
+  and ([.appliedPatches[].name] | index("Disable Play Store updates") != null)
 ' "$REPORT" >/dev/null || {
   echo "Morphe report validation failed" >&2
   cat "$REPORT" >&2
@@ -243,6 +253,8 @@ spoof_signature=false
 custom_branding=false
 app_icon_patch=false
 app_icon=original
+play_store_update_patch=enabled
+manifest_version_code=2147483647
 signing=morphe_unsigned_original_certificate_identity_preserved
 corepatch_required=true
 source_sha256=$SOURCE_SHA256
