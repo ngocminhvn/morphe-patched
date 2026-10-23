@@ -22,8 +22,12 @@ See **[SUPPORTED.md](SUPPORTED.md)** for the complete stable + experimental comp
 - Clone app is disabled.
 - Spoof signature is disabled.
 - Custom branding and app icon patches are disabled.
+- **Disable Play Store updates** is explicitly enabled for both apps.
+- The APK manifest `versionCode` is set to `2147483647`; Morphe patches app-side `PackageInfo` version reads to use the original code.
+- Build validation fails if the update-blocking patch is not present in Morphe's applied-patches report.
 
 For YouTube and YouTube Music, this keeps the stock Google Play Services sign-in path instead of redirecting to GmsCore.
+The Play Store update-blocking patch is not effective when the app is installed using root mounting; it can also cause app-specific issues. Existing release APKs are unchanged until rebuilt.
 
 ## Release output
 
